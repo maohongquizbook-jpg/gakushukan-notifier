@@ -207,21 +207,53 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
         page.wait_for_selector("#btn-go", timeout=30000)
         time.sleep(1)
 
-        # 検索条件を設定
-        page.click("#thismonth")                       # いつ: 1か月
-        for sel in ("#saturday", "#sunday", "#holiday"):  # 曜日: 土・日・祝
-            try:
-                page.check(sel)
-            except Exception:
-                page.click(sel)
-        page.select_option("#bname", cfg["category_value"])  # どこで: 生涯学習館
-        time.sleep(1)  # filterInst() による施設リスト更新を待つ
+        # 検索条件を設定。曜日指定などは「いつ」の折りたたみ(∨)内に隠れており、
+        # 通常クリックは不可視要素で失敗するため、JS直接実行で確実に操作する
+        page.evaluate(
+            """() => {
+                // 折りたたみを開く（スクリーンショット確認用・動作には必須ではない）
+                const col = document.getElementById('collapse-when');
+                if (col && col.getAttribute('aria-expanded') !== 'true') col.click();
+                // いつ: 1か月
+                const month = document.getElementById('thismonth');
+                if (month) month.click();
+                // 曜日: 土・日・祝
+                ['saturday', 'sunday', 'holiday'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && !el.checked) el.click();
+                });
+            }"""
+        )
+        time.sleep(0.5)
+        # どこで: 生涯学習館（selectに値を入れてchangeイベント発火）
+        page.evaluate(
+            """(val) => {
+                const sel = document.getElementById('bname');
+                sel.value = val;
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+                if (typeof filterInst === 'function') { try { filterInst(); } catch (e) {} }
+            }""",
+            cfg["category_value"],
+        )
+        time.sleep(1)  # 施設リスト更新を待つ
+
+        # 設定確認ログ
+        checked = page.evaluate(
+            """() => ({
+                thismonth: document.getElementById('thismonth')?.checked,
+                sat: document.getElementById('saturday')?.checked,
+                sun: document.getElementById('sunday')?.checked,
+                hol: document.getElementById('holiday')?.checked,
+                bname: document.getElementById('bname')?.value,
+            })"""
+        )
+        print(f"[INFO] 検索条件: {checked}")
 
         if debug:
             dump_debug(page, "search_conditions")
 
-        # 検索実行（フォームPOSTで遷移 or 同一ページ内更新の両方に対応）
-        page.click("#btn-go")
+        # 検索実行（JS経由でクリック→フォームPOSTで結果画面へ遷移）
+        page.evaluate("() => document.getElementById('btn-go').click()")
         try:
             page.wait_for_load_state("networkidle", timeout=30000)
         except PWTimeout:
