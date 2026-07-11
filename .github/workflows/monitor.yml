@@ -2,16 +2,15 @@ name: gakushukan-monitor
 
 on:
   schedule:
-    # 15分おき。JST 7:00〜22:45 のみ実行（cronはUTC指定: JST-9時間）
     - cron: "*/15 22,23 * * *"
     - cron: "*/15 0-13 * * *"
-  workflow_dispatch:   # Actionsタブから手動実行できるようにする
+  workflow_dispatch:
 
 permissions:
-  contents: write      # state.json をコミットして前回状態を持ち越すため
+  contents: write
 
 concurrency:
-  group: monitor       # 前の実行が長引いた場合に重複起動しない
+  group: monitor
   cancel-in-progress: false
 
 jobs:
@@ -48,14 +47,25 @@ jobs:
           yaml.safe_dump(cfg, open("config.yaml", "w", encoding="utf-8"), allow_unicode=True)
           PYEOF
 
-      - name: Run monitor
-        run: python monitor.py
+      - name: Run monitor (debug)
+        continue-on-error: true
+        run: python monitor.py --debug
+
+      - name: Upload debug files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: debug/
+          if-no-files-found: ignore
 
       - name: Persist state
         run: |
-          git config user.name "monitor-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add state.json
-          git commit -m "update state [skip ci]" || echo "no changes"
-          git pull --rebase origin ${GITHUB_REF_NAME} || true
-          git push
+          if [ -f state.json ]; then
+            git config user.name "monitor-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add state.json
+            git commit -m "update state [skip ci]" || echo "no changes"
+            git pull --rebase origin ${GITHUB_REF_NAME} || true
+            git push
+          fi
