@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-新宿区 生涯学習館 空き状況モニター → Discord Webhook 通知ツール
+新宿区 生涯学習館 空き状況モニター → Discord Webhook 通知ツール（v2）
 
-条件: 土日祝で、同じ部屋の「午後」と「夜間」が両方空いているコマを検知して通知。
-一度予約で埋まった後にキャンセル等で再度空いた場合も、条件が
-「不成立 → 成立」に戻った時点で再通知します。
+レガス新宿 施設予約システムの空き状況検索フォームを実際のDOM構造
+（#thismonth, #saturday/#sunday/#holiday, #bname=1000_1650, #btn-go）に
+合わせて操作し、土日祝の「午後＋夜間 連続空き」を検知して通知する。
 
 使い方:
     python monitor.py                # 1回チェック（差分があれば通知）
-    python monitor.py --loop         # 常駐モード（config の check_interval_min 間隔）
-    python monitor.py --debug        # スクリーンショット/HTML/XHRログを debug/ に保存
-    python monitor.py --notify-all   # 現在条件を満たすコマを全部通知（動作確認用）
-    python monitor.py --dry-run      # Discordに送信せずコンソール出力のみ
+    python monitor.py --loop         # 常駐モード
+    python monitor.py --debug       # 画面キャプチャ等を debug/ に保存
+    python monitor.py --notify-all  # 現在条件を満たすコマを全部通知
+    python monitor.py --dry-run     # Discordに送信しない
 """
 
 import argparse
@@ -33,11 +33,13 @@ STATE_PATH = BASE_DIR / "state.json"
 DEBUG_DIR = BASE_DIR / "debug"
 
 BASE_URL = "https://www.shinjuku.eprs.jp/regasu/web/"
+CATEGORY_SHOGAI_GAKUSHUKAN = "1000_1650"  # #bname の「生涯学習館」
 
 SYMBOL_MAP = {
-    "○": "available", "◯": "available", "〇": "available",
+    "○": "available", "◯": "available", "〇": "available", "◎": "available",
     "△": "partially",
     "×": "full", "✕": "full", "✖": "full",
+    "取": "processing",   # 取消処理中（約30分後に予約可能になる）
     "－": "closed", "-": "closed", "休": "closed", "保": "maintenance",
 }
 AVAILABLE_STATES = {"available", "partially"}
@@ -51,9 +53,10 @@ def load_config() -> dict:
     with open(CONFIG_PATH, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cfg.setdefault("required_slots", ["午後", "夜間"])
-    cfg.setdefault("target_days", "weekend_holiday")
     cfg.setdefault("check_interval_min", 5)
     cfg.setdefault("active_hours", [7, 23])
+    cfg.setdefault("category_value", CATEGORY_SHOGAI_GAKUSHUKAN)
+    cfg.setdefault("facility_filter", [])
     if not cfg.get("discord_webhook_url"):
         print("[WARN] config.yaml の discord_webhook_url が未設定です。--dry-run 以外では通知できません。")
     return cfg
@@ -61,7 +64,7 @@ def load_config() -> dict:
 
 # ---------------------------------------------------------------- scraping
 
-def dump_debug(page, tag: str, xhr_log: list):
+def dump_debug(page, tag: str):
     DEBUG_DIR.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     try:
@@ -72,135 +75,175 @@ def dump_debug(page, tag: str, xhr_log: list):
         (DEBUG_DIR / f"{ts}_{tag}.html").write_text(page.content(), encoding="utf-8")
     except Exception:
         pass
-    if xhr_log:
-        (DEBUG_DIR / f"{ts}_{tag}_xhr.json").write_text(
-            json.dumps(xhr_log, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[DEBUG] debug/ に {tag} のスクリーンショット・HTML・XHRログを保存しました")
-
-
-def try_click_text(page, texts, timeout=4000) -> bool:
-    for t in texts:
-        for locator in (
-            page.get_by_role("button", name=t),
-            page.get_by_role("link", name=t),
-            page.get_by_text(t, exact=True),
-            page.get_by_text(t),
-        ):
-            try:
-                locator.first.click(timeout=timeout)
-                return True
-            except Exception:
-                continue
-    return False
+    print(f"[DEBUG] debug/ に {tag} を保存しました")
 
 
 def extract_tables(page) -> list:
-    """ページ内の全 <table> を汎用的に (ヘッダ, 行ラベル, セル) として抽出。"""
+    """
+    ページ内の全 <table> を、直前の見出し（施設名など）付きで抽出する。
+    セルは rowspan/colspan を展開してグリッド化する。
+    """
     return page.evaluate(
         """() => {
-            const tables = [];
-            document.querySelectorAll('table').forEach(tbl => {
-                const headers = [];
-                const headRow = tbl.querySelector('thead tr') || tbl.querySelector('tr');
-                if (headRow) headRow.querySelectorAll('th,td').forEach(c => headers.push(c.innerText.trim()));
-                const rows = [];
-                const bodyRows = tbl.querySelectorAll('tbody tr');
-                const targetRows = bodyRows.length ? bodyRows : tbl.querySelectorAll('tr');
-                targetRows.forEach((tr, i) => {
-                    if (!tbl.querySelector('thead') && i === 0) return;
-                    const cells = [];
-                    tr.querySelectorAll('th,td').forEach(c => cells.push(c.innerText.trim()));
-                    if (cells.length > 1) rows.push({ label: cells[0], cells: cells.slice(1) });
+            function findTitle(tbl) {
+                const cap = tbl.querySelector('caption');
+                if (cap && cap.innerText.trim()) return cap.innerText.trim();
+                // カード形式のヘッダ
+                const card = tbl.closest('.card');
+                if (card) {
+                    const h = card.querySelector('.card-header, .card-title, h1,h2,h3,h4,h5');
+                    if (h && h.innerText.trim()) return h.innerText.trim();
+                }
+                // 直前の兄弟要素をさかのぼって見出しらしきものを探す
+                let el = tbl.previousElementSibling, hops = 0;
+                while (el && hops < 6) {
+                    const t = el.innerText ? el.innerText.trim() : '';
+                    if (t && t.length < 80 &&
+                        (el.matches('h1,h2,h3,h4,h5,h6,legend,strong,b,.title,.heading') || /館|センター|施設/.test(t))) {
+                        return t.split('\\n')[0];
+                    }
+                    el = el.previousElementSibling; hops++;
+                }
+                // 親をひとつ上がって同様に探す
+                const parent = tbl.parentElement;
+                if (parent) {
+                    let p = parent.previousElementSibling, ph = 0;
+                    while (p && ph < 4) {
+                        const t = p.innerText ? p.innerText.trim() : '';
+                        if (t && t.length < 80 && /館|センター|施設|室/.test(t)) return t.split('\\n')[0];
+                        p = p.previousElementSibling; ph++;
+                    }
+                }
+                return '';
+            }
+
+            function gridify(tbl) {
+                // rowspan/colspan を展開して 2次元配列にする
+                const grid = [];
+                const rows = tbl.querySelectorAll('tr');
+                rows.forEach((tr, r) => {
+                    grid[r] = grid[r] || [];
+                    let c = 0;
+                    tr.querySelectorAll('th,td').forEach(cell => {
+                        while (grid[r][c] !== undefined) c++;
+                        const text = cell.innerText.trim().replace(/\\s+/g, ' ');
+                        const rs = parseInt(cell.getAttribute('rowspan') || '1');
+                        const cs = parseInt(cell.getAttribute('colspan') || '1');
+                        for (let i = 0; i < rs; i++) {
+                            for (let j = 0; j < cs; j++) {
+                                grid[r + i] = grid[r + i] || [];
+                                grid[r + i][c + j] = text;
+                            }
+                        }
+                        c += cs;
+                    });
                 });
-                if (rows.length) tables.push({ headers, rows });
+                return grid;
+            }
+
+            const out = [];
+            document.querySelectorAll('table').forEach(tbl => {
+                const grid = gridify(tbl);
+                if (grid.length >= 2) out.push({ title: findTitle(tbl), grid });
             });
-            return tables;
+            return out;
         }"""
     )
 
 
-def parse_raw_slots(tables: list, facility: str) -> dict:
-    """{ "施設|行ラベル|列ヘッダ": state } の生データを作る。"""
+def parse_raw_slots(tables: list) -> dict:
+    """
+    グリッド化されたテーブル群から { "見出し|行ヘッダ群|列ヘッダ群": state } を作る。
+    ヘッダ行数を自動判定: 記号セルが現れる最初の行より上を全部列ヘッダとして扱い、
+    行側も記号セルより左を全部行ヘッダとして扱う（多段ヘッダ対応）。
+    """
     slots = {}
     for tbl in tables:
-        headers = tbl["headers"]
-        for row in tbl["rows"]:
-            label = re.sub(r"\s+", " ", row["label"])
-            for i, cell in enumerate(row["cells"]):
-                sym = cell.strip()[:1] if cell.strip() else ""
-                if sym not in SYMBOL_MAP:
-                    continue
-                col = headers[i + 1] if i + 1 < len(headers) else f"col{i}"
-                col = re.sub(r"\s+", " ", col)
-                slots[f"{facility}|{label}|{col}"] = SYMBOL_MAP[sym]
+        grid = tbl["grid"]
+        title = re.sub(r"\s+", " ", tbl.get("title") or "").strip()
+
+        # 記号セルの位置を調べる
+        sym_cells = []
+        for r, row in enumerate(grid):
+            for c, cell in enumerate(row or []):
+                if cell and cell.strip()[:1] in SYMBOL_MAP and len(cell.strip()) <= 3:
+                    sym_cells.append((r, c))
+        if not sym_cells:
+            continue
+        first_sym_row = min(r for r, _ in sym_cells)
+        first_sym_col = min(c for _, c in sym_cells)
+
+        for r, c in sym_cells:
+            sym = grid[r][c].strip()[:1]
+            # 列ヘッダ: 記号行より上の同じ列のテキストを連結
+            col_parts = []
+            for hr in range(first_sym_row):
+                v = grid[hr][c] if c < len(grid[hr] or []) else ""
+                if v and v not in col_parts:
+                    col_parts.append(v)
+            # 行ヘッダ: 記号列より左の同じ行のテキストを連結
+            row_parts = []
+            for hc in range(first_sym_col):
+                v = grid[r][hc] if hc < len(grid[r] or []) else ""
+                if v and v not in row_parts:
+                    row_parts.append(v)
+            col = " ".join(col_parts) or f"col{c}"
+            label = " ".join(row_parts) or f"row{r}"
+            slots[f"{title}|{label}|{col}"] = SYMBOL_MAP[sym]
     return slots
 
 
 def fetch_availability(cfg: dict, debug: bool) -> dict:
-    all_slots = {}
-    xhr_log = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            locale="ja-JP", viewport={"width": 1400, "height": 1000},
+            locale="ja-JP", viewport={"width": 1400, "height": 1200},
             user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                         "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
         )
         page = context.new_page()
-
-        def on_response(resp):
-            try:
-                if "json" in resp.headers.get("content-type", "") and len(xhr_log) < 50:
-                    xhr_log.append({"url": resp.url, "body": resp.json()})
-            except Exception:
-                pass
-
-        if debug:
-            page.on("response", on_response)
-
         print(f"[INFO] {BASE_URL} を開いています…")
-        page.goto(BASE_URL, wait_until="networkidle", timeout=60000)
-        time.sleep(2)
-        if debug:
-            dump_debug(page, "home", xhr_log)
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_selector("#btn-go", timeout=30000)
+        time.sleep(1)
 
-        for facility in cfg["facilities"]:
-            print(f"[INFO] {facility} の空き状況を取得中…")
+        # 検索条件を設定
+        page.click("#thismonth")                       # いつ: 1か月
+        for sel in ("#saturday", "#sunday", "#holiday"):  # 曜日: 土・日・祝
             try:
-                page.goto(BASE_URL, wait_until="networkidle", timeout=60000)
-                time.sleep(1.5)
-                try_click_text(page, [cfg.get("period", "1か月")])
-                time.sleep(0.5)
-                try_click_text(page, ["どこで", "施設", "施設で探す"])
-                time.sleep(0.8)
-                if not try_click_text(page, [facility]):
-                    print(f"[WARN] 施設名「{facility}」が見つかりません。")
-                    if debug:
-                        dump_debug(page, f"notfound_{facility}", xhr_log)
-                    continue
-                time.sleep(0.5)
-                try_click_text(page, ["検索", "空き状況を見る", "この条件で検索"])
-                try:
-                    page.wait_for_load_state("networkidle", timeout=20000)
-                except PWTimeout:
-                    pass
-                time.sleep(2)
-                if debug:
-                    dump_debug(page, f"result_{facility}", xhr_log)
+                page.check(sel)
+            except Exception:
+                page.click(sel)
+        page.select_option("#bname", cfg["category_value"])  # どこで: 生涯学習館
+        time.sleep(1)  # filterInst() による施設リスト更新を待つ
 
-                slots = parse_raw_slots(extract_tables(page), facility)
-                if not slots:
-                    print(f"[WARN] {facility}: テーブルを解析できませんでした。--debug のHTMLを確認してください。")
-                else:
-                    print(f"[INFO] {facility}: {len(slots)} コマ取得")
-                all_slots.update(slots)
-            except Exception as e:
-                print(f"[ERROR] {facility} の取得中にエラー: {e}")
-                if debug:
-                    dump_debug(page, f"error_{facility}", xhr_log)
-            time.sleep(cfg.get("per_facility_wait_sec", 3))
+        if debug:
+            dump_debug(page, "search_conditions")
+
+        # 検索実行（フォームPOSTで遷移 or 同一ページ内更新の両方に対応）
+        page.click("#btn-go")
+        try:
+            page.wait_for_load_state("networkidle", timeout=30000)
+        except PWTimeout:
+            pass
+        time.sleep(3)
+
+        if debug:
+            dump_debug(page, "result")
+
+        tables = extract_tables(page)
+        slots = parse_raw_slots(tables)
+
+        if not slots:
+            # 解析失敗時はdebugフラグに関係なく必ず保存（Actionsのartifactで回収できる）
+            print("[WARN] 空き状況テーブルを解析できませんでした。結果画面を debug/ に保存します。")
+            dump_debug(page, "result_parsefail")
+        else:
+            n_avail = sum(1 for v in slots.values() if v in AVAILABLE_STATES)
+            print(f"[INFO] {len(slots)} コマ取得（うち空き {n_avail}）")
+
         browser.close()
-    return all_slots
+        return slots
 
 
 # ---------------------------------------------------------------- 条件判定
@@ -233,37 +276,35 @@ def find_slot_word(*texts):
 
 
 def is_target_day(d, day_text: str) -> bool:
-    """土日祝かどうか。日付が取れた場合はカレンダー判定、無理なら表記の(土)(日)(祝)で判定。"""
     if d is not None:
         return d.weekday() >= 5 or jpholiday.is_holiday(d)
     return bool(re.search(r"[（(]\s*(土|日|祝)|土曜|日曜|祝日", day_text))
 
 
 def build_groups(raw_slots: dict) -> dict:
-    """
-    生データを (施設, 部屋, 日付) ごとにまとめる。
-    戻り値: { group_key: {"slots": {午後: state, ...}, "display": str, "is_target": bool} }
-    """
     groups = {}
     for key, state in raw_slots.items():
-        facility, label, col = (key.split("|") + ["", ""])[:3]
+        title, label, col = (key.split("|") + ["", ""])[:3]
         slot = find_slot_word(col, label)
         if not slot:
-            continue  # 時間帯が特定できないコマは対象外
+            continue
         d = parse_date_from_text(col) or parse_date_from_text(label)
         day_text = f"{label} {col}"
-        # 部屋名 = ラベルから時間帯・日付表記を除いたもの
-        room = label
-        for w in TIME_SLOT_WORDS:
-            room = room.replace(w, "")
-        room = re.sub(r"20\d{2}[/年.\-]\d{1,2}[/月.\-]\d{1,2}日?", "", room)
-        room = re.sub(r"\d{1,2}[/月]\d{1,2}日?", "", room)
-        room = re.sub(r"[（(]\s*[月火水木金土日祝]\s*[)）]", "", room).strip() or "(部屋不明)"
 
+        def clean(text: str) -> str:
+            """日付・時間帯・曜日表記・一般的なヘッダ語を取り除き、部屋名成分だけ残す。"""
+            for w in TIME_SLOT_WORDS:
+                text = text.replace(w, "")
+            text = re.sub(r"20\d{2}[/年.\-]\d{1,2}[/月.\-]\d{1,2}日?", "", text)
+            text = re.sub(r"\d{1,2}[/月]\d{1,2}日?", "", text)
+            text = re.sub(r"[（(][月火水木金土日祝・\s]{1,6}[)）]", "", text)
+            text = re.sub(r"^(日付|時間帯|部屋|施設|室場名?)$", "", text.strip())
+            return text.strip()
+
+        room = re.sub(r"\s+", " ", f"{title} {clean(label)} {clean(col)}").strip() or "(部屋不明)"
         date_key = d.isoformat() if d else re.sub(r"[^0-9/月日土日祝()（）]", "", col) or col
-        gkey = f"{facility}|{room}|{date_key}"
-        g = groups.setdefault(gkey, {"slots": {}, "date": d, "day_text": day_text,
-                                     "facility": facility, "room": room})
+        gkey = f"{room}|{date_key}"
+        g = groups.setdefault(gkey, {"slots": {}, "date": d, "day_text": day_text, "room": room})
         g["slots"][slot] = state
     for g in groups.values():
         g["is_target"] = is_target_day(g["date"], g["day_text"])
@@ -271,11 +312,13 @@ def build_groups(raw_slots: dict) -> dict:
 
 
 def find_matched(groups: dict, cfg: dict) -> dict:
-    """条件（土日祝 かつ required_slots が全て空き）を満たすグループを返す。"""
     required = cfg["required_slots"]
+    flt = cfg.get("facility_filter") or []
     matched = {}
     for gkey, g in groups.items():
         if not g["is_target"]:
+            continue
+        if flt and not any(f in gkey for f in flt):
             continue
         if all(g["slots"].get(s) in AVAILABLE_STATES for s in required):
             matched[gkey] = g
@@ -286,7 +329,10 @@ def find_matched(groups: dict, cfg: dict) -> dict:
 
 def load_state() -> dict:
     if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        try:
+            return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
     return {}
 
 
@@ -306,13 +352,12 @@ def format_group_line(gkey: str, g: dict, reopened: bool) -> str:
         holiday = "・祝" if jpholiday.is_holiday(g["date"]) else ""
         day = f"{g['date'].month}/{g['date'].day}({wd}{holiday})"
     else:
-        day = gkey.split("|")[2]
+        day = gkey.split("|")[-1]
     tag = " ♻️再度空き" if reopened else ""
-    return f"・**{day}** {g['facility']} {g['room']}（午後＋夜間）{tag}"
+    return f"・**{day}** {g['room']}（午後＋夜間）{tag}"
 
 
 def notify_discord(webhook_url: str, items: list, dry_run: bool):
-    """items: [(gkey, group, reopened)]"""
     lines = [format_group_line(k, g, r) for k, g, r in items]
     chunks, buf = [], ""
     for line in lines:
@@ -322,7 +367,6 @@ def notify_discord(webhook_url: str, items: list, dry_run: bool):
         buf += line + "\n"
     if buf:
         chunks.append(buf)
-
     for i, chunk in enumerate(chunks):
         payload = {
             "content": "@here" if not dry_run else "",
@@ -342,7 +386,7 @@ def notify_discord(webhook_url: str, items: list, dry_run: bool):
             if r.status_code >= 300:
                 print(f"[ERROR] Discord通知失敗: {r.status_code} {r.text}")
             else:
-                print(f"[INFO] Discordへ通知しました")
+                print("[INFO] Discordへ通知しました")
         time.sleep(1)
 
 
@@ -351,7 +395,7 @@ def notify_discord(webhook_url: str, items: list, dry_run: bool):
 def run_once(cfg: dict, args) -> bool:
     raw = fetch_availability(cfg, debug=args.debug)
     if not raw:
-        print("[ERROR] 空き状況を取得できませんでした。--debug で debug/ の内容を確認してください。")
+        print("[ERROR] 空き状況を取得できませんでした。debug/ の result_parsefail を確認してください。")
         return False
 
     groups = build_groups(raw)
@@ -389,18 +433,17 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--notify-all", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--loop", action="store_true", help="常駐モードで定期チェック")
+    ap.add_argument("--loop", action="store_true")
     args = ap.parse_args()
 
     cfg = load_config()
-
     if not args.loop:
         ok = run_once(cfg, args)
         sys.exit(0 if ok else 1)
 
     interval = max(int(cfg["check_interval_min"]), 3) * 60
     start_h, end_h = cfg["active_hours"]
-    print(f"[INFO] 常駐モード開始: {cfg['check_interval_min']}分間隔 / 稼働時間 {start_h}時〜{end_h}時")
+    print(f"[INFO] 常駐モード開始: {cfg['check_interval_min']}分間隔 / 稼働 {start_h}時〜{end_h}時")
     while True:
         now = datetime.now()
         if start_h <= now.hour < end_h:
