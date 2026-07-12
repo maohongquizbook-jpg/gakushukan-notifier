@@ -15,6 +15,7 @@
 """
 
 import argparse
+import calendar
 import json
 import re
 import sys
@@ -56,6 +57,8 @@ def load_config() -> dict:
     cfg.setdefault("check_interval_min", 5)
     cfg.setdefault("active_hours", [7, 23])
     cfg.setdefault("category_value", CATEGORY_SHOGAI_GAKUSHUKAN)
+    cfg.setdefault("horizon_months", 3)
+    cfg.setdefault("notify_filled", True)
     cfg.setdefault("facility_filter", [])
     if not cfg.get("discord_webhook_url"):
         print("[WARN] config.yaml の discord_webhook_url が未設定です。--dry-run 以外では通知できません。")
@@ -375,12 +378,27 @@ SPLIT_MAP = {"7": [(0, "3"), (3, "3"), (6, "1")],
              "2": [(0, "1"), (1, "1")]}
 
 
+def horizon_end_date(today: date, months: int = 3) -> date:
+    """Nか月先の月末日を返す（例: 7/12, months=3 → 10/31）。"""
+    m = today.month + months
+    y = today.year + (m - 1) // 12
+    m = (m - 1) % 12 + 1
+    return date(y, m, calendar.monthrange(y, m)[1])
+
+
 def fetch_availability(cfg: dict, debug: bool):
-    """1週間×5回に分けて検索し、全期間の空きコマを取得する。
+    """1週間ごとに分割して検索し、公開範囲（3か月先の月末）までの空きコマを取得する。
     100行の上限に達した週は自動的に短い期間へ分割して再検索する。"""
     from datetime import timedelta
     today = date.today()
-    queue = [((today + timedelta(days=off)).isoformat(), "7") for off in (0, 7, 14, 21, 28)]
+    if cfg.get("horizon_days"):  # 日数での明示指定があれば優先
+        end = today + timedelta(days=int(cfg["horizon_days"]) - 1)
+    else:
+        end = horizon_end_date(today, int(cfg.get("horizon_months", 3)))
+    total_days = (end - today).days + 1
+    print(f"[INFO] 検索範囲: {today.isoformat()} 〜 {end.isoformat()} ({total_days}日間)")
+    queue = [((today + timedelta(days=off)).isoformat(), "7")
+             for off in range(0, total_days, 7)]
 
     all_slots = {}
     all_ok = True
@@ -626,6 +644,49 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool):
     print("[INFO] テスト通知をDiscordへ送信しました")
 
 
+def format_lost_key(gkey: str) -> str:
+    parts = gkey.split("|")
+    room, iso = parts[0], parts[-1]
+    d = parse_date_from_text(iso)
+    if d:
+        wd = WEEKDAY_JA[d.weekday()]
+        hol = "・祝" if jpholiday.is_holiday(d) else ""
+        return f"・**{d.month}/{d.day}({wd}{hol})** {room}（午後＋夜間）"
+    return f"・{gkey}"
+
+
+def notify_lost(webhook_url: str, keys: list, dry_run: bool):
+    lines = [format_lost_key(k) for k in keys]
+    chunks, buf = [], ""
+    for line in lines:
+        if len(buf) + len(line) > 1800:
+            chunks.append(buf)
+            buf = ""
+        buf += line + "\n"
+    if buf:
+        chunks.append(buf)
+    for i, chunk in enumerate(chunks):
+        payload = {
+            "embeds": [{
+                "title": "📕 午後＋夜間の連続空きが埋まりました"
+                         + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""),
+                "description": chunk + f"\n[予約システムを開く]({BASE_URL})",
+                "color": 0xE74C3C,
+                "footer": {"text": datetime.now().strftime("%Y-%m-%d %H:%M")},
+            }]
+        }
+        if dry_run:
+            print("[DRY-RUN] 埋まり通知内容:")
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            r = requests.post(webhook_url, json=payload, timeout=15)
+            if r.status_code >= 300:
+                print(f"[ERROR] Discord通知失敗: {r.status_code} {r.text}")
+            else:
+                print("[INFO] 埋まり通知をDiscordへ送信しました")
+        time.sleep(1)
+
+
 # ---------------------------------------------------------------- main
 
 def run_once(cfg: dict, args) -> bool:
@@ -659,6 +720,18 @@ def run_once(cfg: dict, args) -> bool:
         notify_discord(cfg.get("discord_webhook_url", ""), items, dry_run=args.dry_run)
     else:
         print("[INFO] 新たな条件成立はありません")
+
+    # 前回成立していたのに今回消えた＝予約が入って埋まった（未来の日付のみ対象）
+    if not first_run and not args.notify_all and cfg.get("notify_filled", True):
+        lost = []
+        for k in sorted(prev_matched - set(matched.keys())):
+            d = parse_date_from_text(k.split("|")[-1])
+            if d and d >= date.today():
+                lost.append(k)
+        if lost:
+            lost = sorted(lost, key=lambda k: k.split("|")[-1])
+            print(f"[INFO] 埋まった連続空き {len(lost)} 件を検出")
+            notify_lost(cfg.get("discord_webhook_url", ""), lost, dry_run=args.dry_run)
 
     ever_matched |= set(matched.keys())
     save_state(raw, list(matched.keys()), ever_matched)
