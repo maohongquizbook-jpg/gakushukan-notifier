@@ -248,9 +248,15 @@ def parse_week_info(page) -> dict:
     return slots
 
 
+SLOT_WINDOWS = {"午前": (900, 1200), "午後": (1300, 1700), "夜間": (1800, 2200)}
+
+
 def parse_daily_list(page) -> dict:
-    """「日付順」画面を解析する。空きコマは <tr id="YYYYMMDD_館CD_部屋CD_開始時刻_連番">
-    の形式で列挙されるため、行IDから日付・時間帯を直接読み取る。"""
+    """「日付順」画面を解析する。
+    空きコマは <tr id="YYYYMMDD_館CD_部屋CD_開始時刻_連番"> で列挙されるが、
+    連続した時間帯が空いている場合は「13時00分～22時00分」のように
+    1行にまとめて表示されるため、行内の時刻範囲を読み取り、
+    その範囲がカバーする時間帯（午前/午後/夜間）すべてに展開する。"""
     rows = page.evaluate(
         r"""() => {
             const out = [];
@@ -259,22 +265,34 @@ def parse_daily_list(page) -> dict:
                 if (!m) return;
                 const fac = tr.querySelector('td.facility a, td.facility');
                 out.push({ date: m[1], start: m[4],
-                           room: fac ? fac.innerText.trim().replace(/\s+/g, ' ') : '' });
+                           room: fac ? fac.innerText.trim().replace(/\s+/g, ' ') : '',
+                           text: (tr.innerText || '').replace(/\s+/g, ' ') });
             });
             return out;
         }"""
     )
     slots = {}
     for r in rows:
-        try:
-            t = int(r["start"])
-        except ValueError:
-            continue
-        slot = "午前" if t < 1200 else ("午後" if t < 1800 else "夜間")
         d = r["date"]
         iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
         room = r["room"] or "(部屋不明)"
-        slots[f"{room}|{slot}|{iso}"] = "available"
+        # 行テキストから時刻（例: 13時00分～22時00分 / 18:00-22:00）を全部拾う
+        times = re.findall(r"(\d{1,2})[:時](\d{2})", r.get("text", ""))
+        nums = [int(h) * 100 + int(m) for h, m in times if int(h) <= 24]
+        if nums:
+            start, end = min(nums), max(nums)
+        else:
+            try:
+                start = int(r["start"])
+            except ValueError:
+                continue
+            end = start + 400  # 終了時刻不明時は1コマ分と仮定
+        for slot, (ws, we) in SLOT_WINDOWS.items():
+            key = f"{room}|{slot}|{iso}"
+            if start <= ws and end >= we:
+                slots[key] = "available"        # 時間帯を丸ごとカバー
+            elif start < we and end > ws:
+                slots.setdefault(key, "partially")  # 一部だけ空き
     return slots
 
 
@@ -559,6 +577,53 @@ def notify_discord(webhook_url: str, items: list, dry_run: bool):
         time.sleep(1)
 
 
+def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool):
+    """--test 用: 取得結果の要約をDiscordへ送る（条件成立の有無に関係なく必ず送信）。"""
+    avail = sorted(k for k, v in raw_slots.items() if v in AVAILABLE_STATES)
+    lines = []
+    for k in avail[:20]:
+        room, slot, iso = (k.split("|") + ["", ""])[:3]
+        d = parse_date_from_text(iso)
+        if d:
+            wd = WEEKDAY_JA[d.weekday()]
+            hol = "・祝" if jpholiday.is_holiday(d) else ""
+            lines.append(f"・{d.month}/{d.day}({wd}{hol}) {room} {slot}")
+        else:
+            lines.append(f"・{k}")
+    if len(avail) > 20:
+        lines.append(f"…ほか {len(avail) - 20} 件")
+    body = "\n".join(lines) if lines else "（現在、土日祝の空きコマはありません）"
+    status = "✅ 取得成功" if ok else "⚠️ 取得失敗（要確認）"
+    payload = {
+        "embeds": [{
+            "title": "🔔 テスト通知: 監視システムは動作しています",
+            "description": (
+                f"{status}\n\n"
+                f"**現在の土日祝の空きコマ: {len(avail)}件**\n{body}\n\n"
+                "※これはテスト通知です。実際の通知は「同じ部屋で午後＋夜間が"
+                "両方空いた時」にだけ届きます。\n"
+                f"[予約システムを開く]({BASE_URL})"
+            ),
+            "color": 0x3498DB,
+            "footer": {"text": datetime.now().strftime("%Y-%m-%d %H:%M")},
+        }]
+    }
+    if dry_run:
+        print("[DRY-RUN] テスト通知内容:")
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    url = cfg.get("discord_webhook_url", "")
+    if not url:
+        print("[ERROR] discord_webhook_url が未設定です。GitHub Actionsの場合はSecretsの"
+              " DISCORD_WEBHOOK_URL を確認してください。")
+        sys.exit(1)
+    r = requests.post(url, json=payload, timeout=15)
+    if r.status_code >= 300:
+        print(f"[ERROR] Discord通知失敗: {r.status_code} {r.text}")
+        sys.exit(1)
+    print("[INFO] テスト通知をDiscordへ送信しました")
+
+
 # ---------------------------------------------------------------- main
 
 def run_once(cfg: dict, args) -> bool:
@@ -603,9 +668,15 @@ def main():
     ap.add_argument("--notify-all", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--loop", action="store_true")
+    ap.add_argument("--test", action="store_true",
+                    help="取得結果の要約をテスト通知としてDiscordへ必ず送る")
     args = ap.parse_args()
 
     cfg = load_config()
+    if args.test:
+        raw, ok = fetch_availability(cfg, debug=args.debug)
+        send_test_notification(cfg, raw, ok, dry_run=args.dry_run)
+        sys.exit(0)
     if not args.loop:
         ok = run_once(cfg, args)
         sys.exit(0 if ok else 1)
