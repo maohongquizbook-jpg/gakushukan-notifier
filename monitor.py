@@ -379,27 +379,33 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
                     cands.sort((a, b) =>
                         (a.innerText || a.value || '').length -
                         (b.innerText || b.value || '').length);
+                    cands[0].scrollIntoView({ block: 'center' });
                     cands[0].click();
                     return true;
                 }"""
                 expand_clicks, misses = 0, 0
                 prev_rows = page.evaluate(COUNT_JS)
-                for _ in range(120):
+                print(f"[INFO] 展開前の空きコマ行数: {prev_rows}")
+                for _ in range(150):
                     if page.evaluate(CLICK_JS):
                         expand_clicks += 1
                         misses = 0
-                        # 行数が増える（=読み込み完了）まで最大3秒待つ
-                        for _ in range(6):
+                        # 行数が増える（=読み込み完了）まで最大6秒待つ
+                        for _ in range(12):
                             time.sleep(0.5)
                             cur = page.evaluate(COUNT_JS)
                             if cur > prev_rows:
                                 prev_rows = cur
                                 break
+                        print(f"[INFO] さらに表示 {expand_clicks}回目 → 行数 {prev_rows}")
                     else:
                         misses += 1
-                        if misses >= 4:
+                        if misses >= 6:
                             break
-                        time.sleep(0.7)
+                        # ボタンが画面外/遅延生成の可能性に備え、最下部へスクロールして再確認
+                        page.evaluate(
+                            "() => window.scrollTo(0, document.body.scrollHeight)")
+                        time.sleep(1.0)
                 # 折りたたまれている日付セクションをすべて開く
                 page.evaluate(
                     """() => {
@@ -735,7 +741,7 @@ def main():
 
     cfg = load_config()
     if args.test:
-        raw, ok = fetch_availability(cfg, debug=args.debug)
+        raw, ok = fetch_availability(cfg, debug=True)  # テスト時は常に画面を保存
         send_test_notification(cfg, raw, ok, dry_run=args.dry_run)
         sys.exit(0)
     if not args.loop:
