@@ -193,61 +193,6 @@ def parse_raw_slots(tables: list) -> dict:
     return slots
 
 
-def get_room_vocab(page) -> list:
-    """#iname の選択肢（部屋名一覧）を取得する。"""
-    try:
-        return page.evaluate(
-            """() => Array.from(document.querySelectorAll('#iname option'))
-                    .map(o => o.textContent.trim())
-                    .filter(t => t && t !== '指定なし')"""
-        )
-    except Exception:
-        return []
-
-
-def parse_week_info(page) -> dict:
-    """「施設ごと」画面の週表示テーブル(#week-info)から td の id/class/alt を直接読む。"""
-    cells = page.evaluate(
-        r"""() => {
-            const out = [];
-            const tbl = document.getElementById('week-info');
-            if (!tbl) return out;
-            const cap = tbl.querySelector('caption');
-            const room = cap ? cap.innerText.trim().replace(/\s+/g, ' ') : '';
-            tbl.querySelectorAll('td[id]').forEach(td => {
-                const m = td.id.match(/^(\d{8})_(\d+)$/);
-                if (!m) return;
-                const img = td.querySelector('img.calendar-status');
-                out.push({ room, date: m[1], code: m[2],
-                           cls: td.className || '', alt: img ? (img.alt || '') : '' });
-            });
-            return out;
-        }"""
-    )
-    slots = {}
-    for c in cells:
-        code = c["code"]
-        slot = {"1": "午前", "2": "午後", "3": "夜間"}.get(code[:1])
-        if not slot:
-            continue
-        alt, cls = c["alt"], c["cls"]
-        if "available" in cls or "空き" == alt or alt.startswith("空"):
-            state = "partially" if "一部" in alt else "available"
-        elif "一部" in alt:
-            state = "partially"
-        elif "取" in alt:
-            state = "processing"
-        elif "予約" in alt or "×" in alt:
-            state = "full"
-        else:
-            state = "closed"
-        d = c["date"]
-        iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
-        room = c["room"] or "(部屋不明)"
-        slots[f"{room}|{slot}|{iso}"] = state
-    return slots
-
-
 SLOT_WINDOWS = {"午前": (900, 1200), "午後": (1300, 1700), "夜間": (1800, 2200)}
 
 
@@ -276,7 +221,6 @@ def parse_daily_list(page) -> dict:
         d = r["date"]
         iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
         room = r["room"] or "(部屋不明)"
-        # 行テキストから時刻（例: 13時00分～22時00分 / 18:00-22:00）を全部拾う
         times = re.findall(r"(\d{1,2})[:時](\d{2})", r.get("text", ""))
         nums = [int(h) * 100 + int(m) for h, m in times if int(h) <= 24]
         if nums:
@@ -286,17 +230,160 @@ def parse_daily_list(page) -> dict:
                 start = int(r["start"])
             except ValueError:
                 continue
-            end = start + 400  # 終了時刻不明時は1コマ分と仮定
+            end = start + 400
         for slot, (ws, we) in SLOT_WINDOWS.items():
             key = f"{room}|{slot}|{iso}"
             if start <= ws and end >= we:
-                slots[key] = "available"        # 時間帯を丸ごとカバー
+                slots[key] = "available"
             elif start < we and end > ws:
-                slots.setdefault(key, "partially")  # 一部だけ空き
+                slots.setdefault(key, "partially")
     return slots
 
 
-def fetch_availability(cfg: dict, debug: bool) -> dict:
+DAILY_ROW_CAP = 100  # 日付順一覧はおよそ100行で打ち切られる（サイト仕様）
+
+COUNT_ROWS_JS = ("() => document.querySelectorAll("
+                 "'table[id^=\"dt_free-info\"] tr[id]').length")
+
+CLICK_MORE_JS = """() => {
+    const cands = Array.from(document.querySelectorAll(
+            'button, a, input[type=button], input[type=submit]'))
+        .filter(e => (e.innerText || e.value || '').includes('さらに表示')
+            && e.offsetParent !== null && !e.disabled);
+    if (!cands.length) return false;
+    cands.sort((a, b) =>
+        (a.innerText || a.value || '').length -
+        (b.innerText || b.value || '').length);
+    cands[0].scrollIntoView({ block: 'center' });
+    cands[0].click();
+    return true;
+}"""
+
+
+def expand_daily(page) -> int:
+    """「さらに表示」をなくなるまで展開し、読み込めた行数を返す。"""
+    clicks, misses = 0, 0
+    prev_rows = page.evaluate(COUNT_ROWS_JS)
+    for _ in range(150):
+        if page.evaluate(CLICK_MORE_JS):
+            clicks += 1
+            misses = 0
+            for _ in range(12):  # 行数が増えるまで最大6秒待つ
+                time.sleep(0.5)
+                cur = page.evaluate(COUNT_ROWS_JS)
+                if cur > prev_rows:
+                    prev_rows = cur
+                    break
+        else:
+            misses += 1
+            if misses >= 6:
+                break
+            page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+            time.sleep(1.0)
+    page.evaluate(
+        """() => {
+            const els = Array.from(document.querySelectorAll('button, a'));
+            const btn = els.find(e => (e.innerText || '').trim() === 'すべて開く');
+            if (btn) btn.click();
+        }"""
+    )
+    time.sleep(0.5)
+    return page.evaluate(COUNT_ROWS_JS)
+
+
+def search_window(page, cfg: dict, start_iso: str, days_value: str,
+                  debug: bool, tag: str):
+    """開始日と期間を指定して検索し、日付順一覧を解析する。
+    戻り値: (slots, ok, 行数)"""
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_selector("#btn-go", timeout=30000)
+    time.sleep(0.8)
+
+    # 折りたたみを開き、曜日（土日祝）を設定
+    page.evaluate(
+        """() => {
+            const col = document.getElementById('collapse-when');
+            if (col && col.getAttribute('aria-expanded') !== 'true') col.click();
+            ['saturday', 'sunday', 'holiday'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el && !el.checked) el.click();
+            });
+        }"""
+    )
+    time.sleep(0.3)
+    # 開始日・期間を直接指定（1か月ラジオは使わない）
+    page.evaluate(
+        """(p) => {
+            const ds = document.getElementById('daystart');
+            ds.value = p.start;
+            ds.dispatchEvent(new Event('input', { bubbles: true }));
+            ds.dispatchEvent(new Event('change', { bubbles: true }));
+            const dy = document.getElementById('days');
+            dy.value = p.days;
+            dy.dispatchEvent(new Event('change', { bubbles: true }));
+        }""",
+        {"start": start_iso, "days": days_value},
+    )
+    # どこで: 生涯学習館
+    page.evaluate(
+        """(val) => {
+            const sel = document.getElementById('bname');
+            sel.value = val;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            if (typeof filterInst === 'function') { try { filterInst(); } catch (e) {} }
+        }""",
+        cfg["category_value"],
+    )
+    time.sleep(0.8)
+
+    page.evaluate("() => document.getElementById('btn-go').click()")
+    try:
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except PWTimeout:
+        pass
+    time.sleep(1.5)
+
+    # 日付順タブへ
+    try:
+        page.evaluate("() => doAction(document.form1, gRsvWOpeUnreservedDailyAction)")
+        try:
+            page.wait_for_load_state("networkidle", timeout=30000)
+        except PWTimeout:
+            pass
+        time.sleep(1.5)
+    except Exception as e:
+        print(f"[WARN] {tag}: 日付順タブでエラー: {e}")
+        dump_debug(page, f"dailyfail_{tag}")
+        return {}, False, 0
+
+    if "日付順" not in (page.title() or ""):
+        print(f"[WARN] {tag}: 日付順画面に到達できませんでした")
+        dump_debug(page, f"dailyfail_{tag}")
+        return {}, False, 0
+
+    rows = expand_daily(page)
+    if debug:
+        dump_debug(page, f"daily_{tag}")
+    slots = parse_daily_list(page)
+    print(f"[INFO] {tag} ({start_iso}〜{days_value}日間): {rows}行 / {len(slots)}コマ")
+    return slots, True, rows
+
+
+# 期間の細分化: 100行の上限に達した場合の分割パターン（daysの選択肢は 1/2/3/7/31 のみ）
+SPLIT_MAP = {"7": [(0, "3"), (3, "3"), (6, "1")],
+             "3": [(0, "1"), (1, "1"), (2, "1")],
+             "2": [(0, "1"), (1, "1")]}
+
+
+def fetch_availability(cfg: dict, debug: bool):
+    """1週間×5回に分けて検索し、全期間の空きコマを取得する。
+    100行の上限に達した週は自動的に短い期間へ分割して再検索する。"""
+    from datetime import timedelta
+    today = date.today()
+    queue = [((today + timedelta(days=off)).isoformat(), "7") for off in (0, 7, 14, 21, 28)]
+
+    all_slots = {}
+    all_ok = True
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -305,188 +392,37 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
                         "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
         )
         page = context.new_page()
-        print(f"[INFO] {BASE_URL} を開いています…")
-        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_selector("#btn-go", timeout=30000)
-        time.sleep(1)
-
-        # 検索条件を設定（折りたたみ内の要素でも動くようJS直接実行）
-        page.evaluate(
-            """() => {
-                const col = document.getElementById('collapse-when');
-                if (col && col.getAttribute('aria-expanded') !== 'true') col.click();
-                const month = document.getElementById('thismonth');
-                if (month) month.click();
-                ['saturday', 'sunday', 'holiday'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el && !el.checked) el.click();
-                });
-            }"""
-        )
-        time.sleep(0.5)
-        page.evaluate(
-            """(val) => {
-                const sel = document.getElementById('bname');
-                sel.value = val;
-                sel.dispatchEvent(new Event('change', { bubbles: true }));
-                if (typeof filterInst === 'function') { try { filterInst(); } catch (e) {} }
-            }""",
-            cfg["category_value"],
-        )
-        time.sleep(1)
-
-        room_vocab = get_room_vocab(page)
-        print(f"[INFO] 対象部屋数: {len(room_vocab)}")
-
-        # 検索実行 → 「施設ごと」結果画面へ
-        page.evaluate("() => document.getElementById('btn-go').click()")
-        try:
-            page.wait_for_load_state("networkidle", timeout=30000)
-        except PWTimeout:
-            pass
-        time.sleep(2)
-        if not room_vocab:
-            room_vocab = get_room_vocab(page)
-
-        # ---- 戦略1: 「日付順」タブ（全部屋の空きを一覧で取得） ----
-        slots = {}
-        daily_ok = False
-        try:
-            page.evaluate("() => doAction(document.form1, gRsvWOpeUnreservedDailyAction)")
+        i = 0
+        while queue:
+            start_iso, days_value = queue.pop(0)
+            i += 1
+            tag = f"w{i}"
             try:
-                page.wait_for_load_state("networkidle", timeout=30000)
-            except PWTimeout:
-                pass
-            time.sleep(2)
-            if debug:
-                dump_debug(page, "daily_list")
-            # 日付順画面に到達できたかをタイトルで判定
-            daily_ok = "日付順" in (page.title() or "")
-            if daily_ok:
-                # 「さらに表示」をなくなるまでクリックして全件をDOMに読み込む。
-                # AJAX読み込み中はボタンが一瞬消えるため、行数の増加を監視しつつ
-                # 数回連続で見つからない場合のみ「全件読み込み済み」と判定する。
-                COUNT_JS = ("() => document.querySelectorAll("
-                            "'table[id^=\"dt_free-info\"] tr[id]').length")
-                CLICK_JS = """() => {
-                    // 「さらに表示」を含む要素のうち、テキストが最短のもの＝ボタン本体を選ぶ
-                    // （外側のコンテナ要素を誤クリックしないため button/a/input に限定）
-                    const cands = Array.from(document.querySelectorAll(
-                            'button, a, input[type=button], input[type=submit]'))
-                        .filter(e => (e.innerText || e.value || '').includes('さらに表示')
-                            && e.offsetParent !== null && !e.disabled);
-                    if (!cands.length) return false;
-                    cands.sort((a, b) =>
-                        (a.innerText || a.value || '').length -
-                        (b.innerText || b.value || '').length);
-                    cands[0].scrollIntoView({ block: 'center' });
-                    cands[0].click();
-                    return true;
-                }"""
-                expand_clicks, misses = 0, 0
-                prev_rows = page.evaluate(COUNT_JS)
-                print(f"[INFO] 展開前の空きコマ行数: {prev_rows}")
-                for _ in range(150):
-                    if page.evaluate(CLICK_JS):
-                        expand_clicks += 1
-                        misses = 0
-                        # 行数が増える（=読み込み完了）まで最大6秒待つ
-                        for _ in range(12):
-                            time.sleep(0.5)
-                            cur = page.evaluate(COUNT_JS)
-                            if cur > prev_rows:
-                                prev_rows = cur
-                                break
-                        print(f"[INFO] さらに表示 {expand_clicks}回目 → 行数 {prev_rows}")
-                    else:
-                        misses += 1
-                        if misses >= 6:
-                            break
-                        # ボタンが画面外/遅延生成の可能性に備え、最下部へスクロールして再確認
-                        page.evaluate(
-                            "() => window.scrollTo(0, document.body.scrollHeight)")
-                        time.sleep(1.0)
-                # 折りたたまれている日付セクションをすべて開く
-                page.evaluate(
-                    """() => {
-                        const els = Array.from(document.querySelectorAll('button, a'));
-                        const btn = els.find(e => (e.innerText || '').trim() === 'すべて開く');
-                        if (btn) btn.click();
-                    }"""
-                )
-                time.sleep(1)
-                total_rows = page.evaluate(COUNT_JS)
-                print(f"[INFO] 「さらに表示」を {expand_clicks} 回展開、空きコマ行 {total_rows} 行を読み込みました")
-                if debug:
-                    dump_debug(page, "daily_list_expanded")
-                slots = parse_daily_list(page)
-                print(f"[INFO] 日付順一覧から {len(slots)} コマの空きを取得"
-                      + "（現在、条件期間内の空きはありません）" * (len(slots) == 0))
-        except Exception as e:
-            print(f"[WARN] 日付順タブの処理でエラー: {e}")
-
-        # ---- 戦略2: フォールバック（施設ごとを部屋単位で巡回） ----
-        if not daily_ok:
-            print("[INFO] 日付順の解析に失敗。施設ごと画面を部屋単位で巡回します…")
-            dump_debug(page, "daily_parsefail")
-            # 施設ごと画面に戻る
-            page.evaluate("() => doAction(document.form1, gRsvWOpeInstSrchVacantAction)")
-            try:
-                page.wait_for_load_state("networkidle", timeout=30000)
-            except PWTimeout:
-                pass
-            time.sleep(2)
-            room_values = page.evaluate(
-                """() => Array.from(document.querySelectorAll('#iname option'))
-                        .filter(o => o.value && o.value !== '0')
-                        .map(o => o.value)"""
-            )
-            print(f"[INFO] 巡回対象: {len(room_values)} 部屋")
-            for i, val in enumerate(room_values):
-                try:
-                    page.evaluate(
-                        """(v) => {
-                            const sel = document.getElementById('iname');
-                            sel.value = v;
-                            sel.dispatchEvent(new Event('change', { bubbles: true }));
-                            doSearch(document.form1, gRsvWOpeInstSrchVacantAction);
-                        }""",
-                        val,
-                    )
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=20000)
-                    except PWTimeout:
-                        pass
-                    time.sleep(1.2)
-                    part = parse_week_info(page)
-                    # 「翌月」がある場合はもう1ページ分読む（検索期間が月をまたぐ場合）
-                    clicked = page.evaluate(
-                        """() => {
-                            const els = Array.from(document.querySelectorAll('button, a'));
-                            const nx = els.find(e => (e.innerText || '').trim() === '翌月' && !e.disabled);
-                            if (nx) { nx.click(); return true; }
-                            return false;
-                        }"""
-                    )
-                    if clicked:
-                        time.sleep(1.5)
-                        part.update(parse_week_info(page))
-                    slots.update(part)
-                except Exception as e:
-                    print(f"[WARN] 部屋 {val} の取得でエラー: {e}")
-            if debug and slots:
-                dump_debug(page, "fallback_last_room")
-
-        ok = daily_ok or bool(slots)
-        if not ok:
-            print("[WARN] どちらの方式でも解析できませんでした。画面を debug/ に保存します。")
-            dump_debug(page, "result_parsefail")
-        else:
-            n_avail = sum(1 for v in slots.values() if v in AVAILABLE_STATES)
-            print(f"[INFO] 合計 {len(slots)} コマ取得（うち空き {n_avail}）")
+                slots, ok, rows = search_window(page, cfg, start_iso, days_value, debug, tag)
+            except Exception as e:
+                print(f"[ERROR] {tag} の取得中に例外: {e}")
+                all_ok = False
+                continue
+            if not ok:
+                all_ok = False
+                continue
+            if rows >= DAILY_ROW_CAP and days_value in SPLIT_MAP:
+                print(f"[INFO] {tag}: 行数が上限に達したため期間を分割して再取得します")
+                base = date.fromisoformat(start_iso)
+                for off, dv in SPLIT_MAP[days_value]:
+                    queue.insert(0, ((base + timedelta(days=off)).isoformat(), dv))
+                continue  # このウィンドウの結果は破棄し、分割分で取り直す
+            all_slots.update(slots)
+            time.sleep(1)  # サーバー負荷への配慮
 
         browser.close()
-        return slots, ok
+
+    if all_ok:
+        n_avail = sum(1 for v in all_slots.values() if v in AVAILABLE_STATES)
+        print(f"[INFO] 合計 {len(all_slots)} コマ取得（うち空き {n_avail}）")
+    else:
+        print("[WARN] 一部期間の取得に失敗しました。今回の結果は保存せず次回に再試行します。")
+    return all_slots, all_ok
 
 
 # ---------------------------------------------------------------- 条件判定
