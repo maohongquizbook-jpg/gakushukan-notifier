@@ -193,6 +193,89 @@ def parse_raw_slots(tables: list) -> dict:
     return slots
 
 
+def get_room_vocab(page) -> list:
+    """#iname の選択肢（部屋名一覧）を取得する。"""
+    try:
+        return page.evaluate(
+            """() => Array.from(document.querySelectorAll('#iname option'))
+                    .map(o => o.textContent.trim())
+                    .filter(t => t && t !== '指定なし')"""
+        )
+    except Exception:
+        return []
+
+
+def parse_week_info(page) -> dict:
+    """「施設ごと」画面の週表示テーブル(#week-info)から td の id/class/alt を直接読む。"""
+    cells = page.evaluate(
+        r"""() => {
+            const out = [];
+            const tbl = document.getElementById('week-info');
+            if (!tbl) return out;
+            const cap = tbl.querySelector('caption');
+            const room = cap ? cap.innerText.trim().replace(/\s+/g, ' ') : '';
+            tbl.querySelectorAll('td[id]').forEach(td => {
+                const m = td.id.match(/^(\d{8})_(\d+)$/);
+                if (!m) return;
+                const img = td.querySelector('img.calendar-status');
+                out.push({ room, date: m[1], code: m[2],
+                           cls: td.className || '', alt: img ? (img.alt || '') : '' });
+            });
+            return out;
+        }"""
+    )
+    slots = {}
+    for c in cells:
+        code = c["code"]
+        slot = {"1": "午前", "2": "午後", "3": "夜間"}.get(code[:1])
+        if not slot:
+            continue
+        alt, cls = c["alt"], c["cls"]
+        if "available" in cls or "空き" == alt or alt.startswith("空"):
+            state = "partially" if "一部" in alt else "available"
+        elif "一部" in alt:
+            state = "partially"
+        elif "取" in alt:
+            state = "processing"
+        elif "予約" in alt or "×" in alt:
+            state = "full"
+        else:
+            state = "closed"
+        d = c["date"]
+        iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        room = c["room"] or "(部屋不明)"
+        slots[f"{room}|{slot}|{iso}"] = state
+    return slots
+
+
+def parse_daily_list(page, room_vocab: list) -> dict:
+    """「日付順」画面（空いている時間帯の一覧）を解析する。
+    テーブルを汎用グリッド化し、日付・時間帯・部屋名が揃う行を空きコマとして拾う。"""
+    slots = {}
+    # td idパターンがあればそちらを優先（週表示と同形式の場合）
+    id_cells = page.evaluate(
+        r"""() => Array.from(document.querySelectorAll('td[id]'))
+                .map(td => ({ id: td.id, cls: td.className || '',
+                              text: (td.innerText || '').trim().replace(/\s+/g, ' ') }))
+                .filter(c => /^\d{8}_\d+$/.test(c.id))"""
+    )
+    tables = extract_tables(page)
+    for tbl in tables:
+        for row in tbl["grid"][0:]:
+            if not row:
+                continue
+            row_text = " ".join(x for x in row if x)
+            d = parse_date_from_text(row_text)
+            slot = find_slot_word(row_text)
+            room = next((r for r in room_vocab if r and r in row_text), None)
+            if room is None:
+                m = re.search(r"\S*(?:赤城|戸山|北新宿|住吉町|西戸山)\S*", row_text)
+                room = m.group(0) if m else None
+            if d and slot and room:
+                slots[f"{room}|{slot}|{d.isoformat()}"] = "available"
+    return slots
+
+
 def fetch_availability(cfg: dict, debug: bool) -> dict:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -207,17 +290,13 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
         page.wait_for_selector("#btn-go", timeout=30000)
         time.sleep(1)
 
-        # 検索条件を設定。曜日指定などは「いつ」の折りたたみ(∨)内に隠れており、
-        # 通常クリックは不可視要素で失敗するため、JS直接実行で確実に操作する
+        # 検索条件を設定（折りたたみ内の要素でも動くようJS直接実行）
         page.evaluate(
             """() => {
-                // 折りたたみを開く（スクリーンショット確認用・動作には必須ではない）
                 const col = document.getElementById('collapse-when');
                 if (col && col.getAttribute('aria-expanded') !== 'true') col.click();
-                // いつ: 1か月
                 const month = document.getElementById('thismonth');
                 if (month) month.click();
-                // 曜日: 土・日・祝
                 ['saturday', 'sunday', 'holiday'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el && !el.checked) el.click();
@@ -225,7 +304,6 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
             }"""
         )
         time.sleep(0.5)
-        # どこで: 生涯学習館（selectに値を入れてchangeイベント発火）
         page.evaluate(
             """(val) => {
                 const sel = document.getElementById('bname');
@@ -235,44 +313,96 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
             }""",
             cfg["category_value"],
         )
-        time.sleep(1)  # 施設リスト更新を待つ
+        time.sleep(1)
 
-        # 設定確認ログ
-        checked = page.evaluate(
-            """() => ({
-                thismonth: document.getElementById('thismonth')?.checked,
-                sat: document.getElementById('saturday')?.checked,
-                sun: document.getElementById('sunday')?.checked,
-                hol: document.getElementById('holiday')?.checked,
-                bname: document.getElementById('bname')?.value,
-            })"""
-        )
-        print(f"[INFO] 検索条件: {checked}")
+        room_vocab = get_room_vocab(page)
+        print(f"[INFO] 対象部屋数: {len(room_vocab)}")
 
-        if debug:
-            dump_debug(page, "search_conditions")
-
-        # 検索実行（JS経由でクリック→フォームPOSTで結果画面へ遷移）
+        # 検索実行 → 「施設ごと」結果画面へ
         page.evaluate("() => document.getElementById('btn-go').click()")
         try:
             page.wait_for_load_state("networkidle", timeout=30000)
         except PWTimeout:
             pass
-        time.sleep(3)
+        time.sleep(2)
+        if not room_vocab:
+            room_vocab = get_room_vocab(page)
 
-        if debug:
-            dump_debug(page, "result")
+        # ---- 戦略1: 「日付順」タブ（全部屋の空きを一覧で取得） ----
+        slots = {}
+        try:
+            page.evaluate("() => doAction(document.form1, gRsvWOpeUnreservedDailyAction)")
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except PWTimeout:
+                pass
+            time.sleep(2)
+            if debug:
+                dump_debug(page, "daily_list")
+            slots = parse_daily_list(page, room_vocab)
+            if slots:
+                print(f"[INFO] 日付順一覧から {len(slots)} コマの空きを取得")
+        except Exception as e:
+            print(f"[WARN] 日付順タブの処理でエラー: {e}")
 
-        tables = extract_tables(page)
-        slots = parse_raw_slots(tables)
+        # ---- 戦略2: フォールバック（施設ごとを部屋単位で巡回） ----
+        if not slots:
+            print("[INFO] 日付順の解析に失敗。施設ごと画面を部屋単位で巡回します…")
+            dump_debug(page, "daily_parsefail")
+            # 施設ごと画面に戻る
+            page.evaluate("() => doAction(document.form1, gRsvWOpeInstSrchVacantAction)")
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except PWTimeout:
+                pass
+            time.sleep(2)
+            room_values = page.evaluate(
+                """() => Array.from(document.querySelectorAll('#iname option'))
+                        .filter(o => o.value && o.value !== '0')
+                        .map(o => o.value)"""
+            )
+            print(f"[INFO] 巡回対象: {len(room_values)} 部屋")
+            for i, val in enumerate(room_values):
+                try:
+                    page.evaluate(
+                        """(v) => {
+                            const sel = document.getElementById('iname');
+                            sel.value = v;
+                            sel.dispatchEvent(new Event('change', { bubbles: true }));
+                            doSearch(document.form1, gRsvWOpeInstSrchVacantAction);
+                        }""",
+                        val,
+                    )
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=20000)
+                    except PWTimeout:
+                        pass
+                    time.sleep(1.2)
+                    part = parse_week_info(page)
+                    # 「翌月」がある場合はもう1ページ分読む（検索期間が月をまたぐ場合）
+                    clicked = page.evaluate(
+                        """() => {
+                            const els = Array.from(document.querySelectorAll('button, a'));
+                            const nx = els.find(e => (e.innerText || '').trim() === '翌月' && !e.disabled);
+                            if (nx) { nx.click(); return true; }
+                            return false;
+                        }"""
+                    )
+                    if clicked:
+                        time.sleep(1.5)
+                        part.update(parse_week_info(page))
+                    slots.update(part)
+                except Exception as e:
+                    print(f"[WARN] 部屋 {val} の取得でエラー: {e}")
+            if debug and slots:
+                dump_debug(page, "fallback_last_room")
 
         if not slots:
-            # 解析失敗時はdebugフラグに関係なく必ず保存（Actionsのartifactで回収できる）
-            print("[WARN] 空き状況テーブルを解析できませんでした。結果画面を debug/ に保存します。")
+            print("[WARN] どちらの方式でも解析できませんでした。画面を debug/ に保存します。")
             dump_debug(page, "result_parsefail")
         else:
             n_avail = sum(1 for v in slots.values() if v in AVAILABLE_STATES)
-            print(f"[INFO] {len(slots)} コマ取得（うち空き {n_avail}）")
+            print(f"[INFO] 合計 {len(slots)} コマ取得（うち空き {n_avail}）")
 
         browser.close()
         return slots
