@@ -48,8 +48,7 @@ jobs:
           PYEOF
 
       - name: Run monitor (debug)
-        continue-on-error: true
-        run: python monitor.py --debug
+        run: python monitor.py
 
       - name: Upload debug files
         if: always()
