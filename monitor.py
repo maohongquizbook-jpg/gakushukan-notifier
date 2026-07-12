@@ -363,6 +363,36 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
             # 日付順画面に到達できたかをタイトルで判定
             daily_ok = "日付順" in (page.title() or "")
             if daily_ok:
+                # 「さらに表示」をなくなるまでクリックして全件をDOMに読み込む
+                expand_clicks = 0
+                for _ in range(50):
+                    clicked = page.evaluate(
+                        """() => {
+                            const els = Array.from(document.querySelectorAll('button, a'));
+                            const btn = els.find(e =>
+                                (e.innerText || '').includes('さらに表示') &&
+                                e.offsetParent !== null && !e.disabled);
+                            if (btn) { btn.click(); return true; }
+                            return false;
+                        }"""
+                    )
+                    if not clicked:
+                        break
+                    expand_clicks += 1
+                    time.sleep(0.8)
+                # 折りたたまれている日付セクションをすべて開く
+                page.evaluate(
+                    """() => {
+                        const els = Array.from(document.querySelectorAll('button, a'));
+                        const btn = els.find(e => (e.innerText || '').trim() === 'すべて開く');
+                        if (btn) btn.click();
+                    }"""
+                )
+                time.sleep(1)
+                if expand_clicks:
+                    print(f"[INFO] 「さらに表示」を {expand_clicks} 回展開しました")
+                if debug:
+                    dump_debug(page, "daily_list_expanded")
                 slots = parse_daily_list(page)
                 print(f"[INFO] 日付順一覧から {len(slots)} コマの空きを取得"
                       + "（現在、条件期間内の空きはありません）" * (len(slots) == 0))
@@ -577,21 +607,30 @@ def notify_discord(webhook_url: str, items: list, dry_run: bool):
         time.sleep(1)
 
 
+def format_slot_key(k: str) -> str:
+    room, slot, iso = (k.split("|") + ["", ""])[:3]
+    d = parse_date_from_text(iso)
+    if d:
+        wd = WEEKDAY_JA[d.weekday()]
+        hol = "・祝" if jpholiday.is_holiday(d) else ""
+        return f"{d.month}/{d.day}({wd}{hol}) {room} {slot}"
+    return k
+
+
 def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool):
     """--test 用: 取得結果の要約をDiscordへ送る（条件成立の有無に関係なく必ず送信）。"""
     avail = sorted(k for k, v in raw_slots.items() if v in AVAILABLE_STATES)
-    lines = []
-    for k in avail[:20]:
-        room, slot, iso = (k.split("|") + ["", ""])[:3]
-        d = parse_date_from_text(iso)
-        if d:
-            wd = WEEKDAY_JA[d.weekday()]
-            hol = "・祝" if jpholiday.is_holiday(d) else ""
-            lines.append(f"・{d.month}/{d.day}({wd}{hol}) {room} {slot}")
-        else:
-            lines.append(f"・{k}")
-    if len(avail) > 20:
-        lines.append(f"…ほか {len(avail) - 20} 件")
+    matched = find_matched(build_groups(raw_slots), cfg)
+    ordered = sorted(matched.items(), key=lambda kv: (kv[1]["date"] or date.max, kv[0]))
+    pair_lines = [f"・{format_group_line(k, g, False).lstrip('・')}"
+                  for k, g in ordered]
+    pair_body = "\n".join(pair_lines[:25]) if pair_lines else "（現在、条件成立の空きはありません）"
+    if len(pair_lines) > 25:
+        pair_body += f"\n…ほか {len(pair_lines) - 25} 件"
+    avail = sorted(avail, key=lambda k: (k.split("|")[-1], k))
+    lines = [f"・{format_slot_key(k)}" for k in avail[:25]]
+    if len(avail) > 25:
+        lines.append(f"…ほか {len(avail) - 25} 件")
     body = "\n".join(lines) if lines else "（現在、土日祝の空きコマはありません）"
     status = "✅ 取得成功" if ok else "⚠️ 取得失敗（要確認）"
     payload = {
@@ -599,9 +638,10 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool):
             "title": "🔔 テスト通知: 監視システムは動作しています",
             "description": (
                 f"{status}\n\n"
-                f"**現在の土日祝の空きコマ: {len(avail)}件**\n{body}\n\n"
-                "※これはテスト通知です。実際の通知は「同じ部屋で午後＋夜間が"
-                "両方空いた時」にだけ届きます。\n"
+                f"**🎯 午後＋夜間の連続空き（通知対象）: {len(matched)}件**\n{pair_body}\n\n"
+                f"**現在の土日祝の空きコマ（全体）: {len(avail)}件**\n{body}\n\n"
+                "※これはテスト通知です。実際の通知は上の🎯に新しい枠が"
+                "現れた時にだけ届きます。\n"
                 f"[予約システムを開く]({BASE_URL})"
             ),
             "color": 0x3498DB,
@@ -651,6 +691,7 @@ def run_once(cfg: dict, args) -> bool:
         targets = sorted(set(matched.keys()) - prev_matched)
 
     if targets:
+        targets = sorted(targets, key=lambda k: (matched[k]["date"] or date.max, k))
         items = [(k, matched[k], k in ever_matched) for k in targets]
         print(f"[INFO] 新たに条件成立 {len(targets)} 件を検出")
         notify_discord(cfg.get("discord_webhook_url", ""), items, dry_run=args.dry_run)
