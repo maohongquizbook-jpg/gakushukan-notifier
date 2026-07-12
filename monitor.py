@@ -248,31 +248,33 @@ def parse_week_info(page) -> dict:
     return slots
 
 
-def parse_daily_list(page, room_vocab: list) -> dict:
-    """「日付順」画面（空いている時間帯の一覧）を解析する。
-    テーブルを汎用グリッド化し、日付・時間帯・部屋名が揃う行を空きコマとして拾う。"""
-    slots = {}
-    # td idパターンがあればそちらを優先（週表示と同形式の場合）
-    id_cells = page.evaluate(
-        r"""() => Array.from(document.querySelectorAll('td[id]'))
-                .map(td => ({ id: td.id, cls: td.className || '',
-                              text: (td.innerText || '').trim().replace(/\s+/g, ' ') }))
-                .filter(c => /^\d{8}_\d+$/.test(c.id))"""
+def parse_daily_list(page) -> dict:
+    """「日付順」画面を解析する。空きコマは <tr id="YYYYMMDD_館CD_部屋CD_開始時刻_連番">
+    の形式で列挙されるため、行IDから日付・時間帯を直接読み取る。"""
+    rows = page.evaluate(
+        r"""() => {
+            const out = [];
+            document.querySelectorAll('table[id^="dt_free-info"] tr[id]').forEach(tr => {
+                const m = tr.id.match(/^(\d{8})_(\d+)_(\d+)_(\d{3,4})_\d+$/);
+                if (!m) return;
+                const fac = tr.querySelector('td.facility a, td.facility');
+                out.push({ date: m[1], start: m[4],
+                           room: fac ? fac.innerText.trim().replace(/\s+/g, ' ') : '' });
+            });
+            return out;
+        }"""
     )
-    tables = extract_tables(page)
-    for tbl in tables:
-        for row in tbl["grid"][0:]:
-            if not row:
-                continue
-            row_text = " ".join(x for x in row if x)
-            d = parse_date_from_text(row_text)
-            slot = find_slot_word(row_text)
-            room = next((r for r in room_vocab if r and r in row_text), None)
-            if room is None:
-                m = re.search(r"\S*(?:赤城|戸山|北新宿|住吉町|西戸山)\S*", row_text)
-                room = m.group(0) if m else None
-            if d and slot and room:
-                slots[f"{room}|{slot}|{d.isoformat()}"] = "available"
+    slots = {}
+    for r in rows:
+        try:
+            t = int(r["start"])
+        except ValueError:
+            continue
+        slot = "午前" if t < 1200 else ("午後" if t < 1800 else "夜間")
+        d = r["date"]
+        iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        room = r["room"] or "(部屋不明)"
+        slots[f"{room}|{slot}|{iso}"] = "available"
     return slots
 
 
@@ -330,6 +332,7 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
 
         # ---- 戦略1: 「日付順」タブ（全部屋の空きを一覧で取得） ----
         slots = {}
+        daily_ok = False
         try:
             page.evaluate("() => doAction(document.form1, gRsvWOpeUnreservedDailyAction)")
             try:
@@ -339,14 +342,17 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
             time.sleep(2)
             if debug:
                 dump_debug(page, "daily_list")
-            slots = parse_daily_list(page, room_vocab)
-            if slots:
-                print(f"[INFO] 日付順一覧から {len(slots)} コマの空きを取得")
+            # 日付順画面に到達できたかをタイトルで判定
+            daily_ok = "日付順" in (page.title() or "")
+            if daily_ok:
+                slots = parse_daily_list(page)
+                print(f"[INFO] 日付順一覧から {len(slots)} コマの空きを取得"
+                      + "（現在、条件期間内の空きはありません）" * (len(slots) == 0))
         except Exception as e:
             print(f"[WARN] 日付順タブの処理でエラー: {e}")
 
         # ---- 戦略2: フォールバック（施設ごとを部屋単位で巡回） ----
-        if not slots:
+        if not daily_ok:
             print("[INFO] 日付順の解析に失敗。施設ごと画面を部屋単位で巡回します…")
             dump_debug(page, "daily_parsefail")
             # 施設ごと画面に戻る
@@ -397,7 +403,8 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
             if debug and slots:
                 dump_debug(page, "fallback_last_room")
 
-        if not slots:
+        ok = daily_ok or bool(slots)
+        if not ok:
             print("[WARN] どちらの方式でも解析できませんでした。画面を debug/ に保存します。")
             dump_debug(page, "result_parsefail")
         else:
@@ -405,7 +412,7 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
             print(f"[INFO] 合計 {len(slots)} コマ取得（うち空き {n_avail}）")
 
         browser.close()
-        return slots
+        return slots, ok
 
 
 # ---------------------------------------------------------------- 条件判定
@@ -555,8 +562,8 @@ def notify_discord(webhook_url: str, items: list, dry_run: bool):
 # ---------------------------------------------------------------- main
 
 def run_once(cfg: dict, args) -> bool:
-    raw = fetch_availability(cfg, debug=args.debug)
-    if not raw:
+    raw, ok = fetch_availability(cfg, debug=args.debug)
+    if not ok:
         print("[ERROR] 空き状況を取得できませんでした。debug/ の result_parsefail を確認してください。")
         return False
 
