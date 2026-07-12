@@ -363,23 +363,38 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
             # 日付順画面に到達できたかをタイトルで判定
             daily_ok = "日付順" in (page.title() or "")
             if daily_ok:
-                # 「さらに表示」をなくなるまでクリックして全件をDOMに読み込む
-                expand_clicks = 0
-                for _ in range(50):
-                    clicked = page.evaluate(
-                        """() => {
-                            const els = Array.from(document.querySelectorAll('button, a'));
-                            const btn = els.find(e =>
-                                (e.innerText || '').includes('さらに表示') &&
-                                e.offsetParent !== null && !e.disabled);
-                            if (btn) { btn.click(); return true; }
-                            return false;
-                        }"""
-                    )
-                    if not clicked:
-                        break
-                    expand_clicks += 1
-                    time.sleep(0.8)
+                # 「さらに表示」をなくなるまでクリックして全件をDOMに読み込む。
+                # AJAX読み込み中はボタンが一瞬消えるため、行数の増加を監視しつつ
+                # 数回連続で見つからない場合のみ「全件読み込み済み」と判定する。
+                COUNT_JS = ("() => document.querySelectorAll("
+                            "'table[id^=\"dt_free-info\"] tr[id]').length")
+                CLICK_JS = """() => {
+                    const els = Array.from(document.querySelectorAll(
+                        'button, a, input[type=button], span, div'));
+                    const btn = els.find(e =>
+                        (e.innerText || e.value || '').includes('さらに表示') &&
+                        e.offsetParent !== null && !e.disabled);
+                    if (btn) { btn.click(); return true; }
+                    return false;
+                }"""
+                expand_clicks, misses = 0, 0
+                prev_rows = page.evaluate(COUNT_JS)
+                for _ in range(120):
+                    if page.evaluate(CLICK_JS):
+                        expand_clicks += 1
+                        misses = 0
+                        # 行数が増える（=読み込み完了）まで最大3秒待つ
+                        for _ in range(6):
+                            time.sleep(0.5)
+                            cur = page.evaluate(COUNT_JS)
+                            if cur > prev_rows:
+                                prev_rows = cur
+                                break
+                    else:
+                        misses += 1
+                        if misses >= 4:
+                            break
+                        time.sleep(0.7)
                 # 折りたたまれている日付セクションをすべて開く
                 page.evaluate(
                     """() => {
@@ -389,8 +404,8 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
                     }"""
                 )
                 time.sleep(1)
-                if expand_clicks:
-                    print(f"[INFO] 「さらに表示」を {expand_clicks} 回展開しました")
+                total_rows = page.evaluate(COUNT_JS)
+                print(f"[INFO] 「さらに表示」を {expand_clicks} 回展開、空きコマ行 {total_rows} 行を読み込みました")
                 if debug:
                     dump_debug(page, "daily_list_expanded")
                 slots = parse_daily_list(page)
