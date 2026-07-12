@@ -369,13 +369,18 @@ def fetch_availability(cfg: dict, debug: bool) -> dict:
                 COUNT_JS = ("() => document.querySelectorAll("
                             "'table[id^=\"dt_free-info\"] tr[id]').length")
                 CLICK_JS = """() => {
-                    const els = Array.from(document.querySelectorAll(
-                        'button, a, input[type=button], span, div'));
-                    const btn = els.find(e =>
-                        (e.innerText || e.value || '').includes('さらに表示') &&
-                        e.offsetParent !== null && !e.disabled);
-                    if (btn) { btn.click(); return true; }
-                    return false;
+                    // 「さらに表示」を含む要素のうち、テキストが最短のもの＝ボタン本体を選ぶ
+                    // （外側のコンテナ要素を誤クリックしないため button/a/input に限定）
+                    const cands = Array.from(document.querySelectorAll(
+                            'button, a, input[type=button], input[type=submit]'))
+                        .filter(e => (e.innerText || e.value || '').includes('さらに表示')
+                            && e.offsetParent !== null && !e.disabled);
+                    if (!cands.length) return false;
+                    cands.sort((a, b) =>
+                        (a.innerText || a.value || '').length -
+                        (b.innerText || b.value || '').length);
+                    cands[0].click();
+                    return true;
                 }"""
                 expand_clicks, misses = 0, 0
                 prev_rows = page.evaluate(COUNT_JS)
