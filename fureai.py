@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-川崎市 ふれあいネット 調査スクリプト【フェーズ1・v2】
+川崎市 ふれあいネット 調査スクリプト【フェーズ1・v3】
 
-かんたん画面(/web/)の空き照会フローを自動で辿り、各画面を debug/ に保存する。
-経路: かんたん画面 → 予約 → 地域から → 川崎区/幸区/中原区 → 館選択 →
-      (先頭の館) → 施設選択 → (先頭の施設) → 一ヶ月空き表示 → 週表示
+採取内容:
+ A) かんたん画面: 予約→地域から→各区→代表館→施設(部屋)一覧→月表示→週表示
+    ・教育文化会館(川崎区)・幸市民館(幸区)・中原市民館(中原区)の部屋一覧
+ B) スマートフォン画面(/sp/): 施設空き状況 の画面遷移
 
 使い方: python fureai.py --debug
 """
@@ -16,8 +17,15 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 KANTAN_URL = "https://www.fureai-net.city.kawasaki.jp/web/"
+SP_URL = "https://www.fureai-net.city.kawasaki.jp/sp/"
 DEBUG_DIR = Path(__file__).parent / "debug"
-WARDS = ["川崎区", "幸区", "中原区"]
+
+# (区, 館) の採取対象
+TARGETS = [("川崎区", "教育文化会館"), ("幸区", "幸市民館"), ("中原区", "中原市民館")]
+
+NAV_WORDS = ("サイトマップ", "ヘルプ", "ホーム", "ログイン", "戻る", "メニュー",
+             "本文", "すべて", "利用者登録", "各種申請書", "施設案内", "予約",
+             "抽選", "小", "中", "大", "緑", "青", "赤")
 
 
 def dump(page, tag):
@@ -31,31 +39,45 @@ def dump(page, tag):
         print(f"[WARN] dump失敗 {tag}: {e}")
 
 
-def click_any(page, texts, timeout=4000):
-    """テキスト・alt属性・value属性のいずれかに一致する要素をクリック"""
-    for t in texts:
-        candidates = [
-            page.get_by_role("link", name=t),
-            page.get_by_role("button", name=t),
-            page.locator(f'img[alt*="{t}"]'),
-            page.locator(f'input[value*="{t}"]'),
-            page.get_by_text(t, exact=True),
-            page.get_by_text(t),
-        ]
-        for loc in candidates:
-            try:
-                loc.first.click(timeout=timeout)
-                print(f"[INFO] 「{t}」をクリック")
-                try:
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                except PWTimeout:
-                    pass
-                time.sleep(2)
-                return True
-            except Exception:
-                continue
-    print(f"[WARN] クリック候補が見つからず: {texts}")
-    return False
+def wait(page, sec=2.5):
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except PWTimeout:
+        pass
+    time.sleep(sec)
+
+
+def click_link_by_text(page, text) -> bool:
+    """innerTextが一致する<a>をJSで直接クリック（画像リンク・非表示でも動く）"""
+    ok = page.evaluate(
+        """(t) => {
+            const links = Array.from(document.querySelectorAll('a'));
+            const hit = links.find(a => a.innerText.trim() === t)
+                     || links.find(a => a.innerText.includes(t))
+                     || links.find(a => (a.querySelector('img')?.alt || '').includes(t));
+            if (hit) { hit.click(); return true; }
+            return false;
+        }""", text)
+    print(f"[INFO] リンク「{text}」: {'クリック' if ok else '見つからず'}")
+    return ok
+
+
+def click_first_content_link(page) -> str:
+    """ナビ以外の本文リンク（doAction/sendBld系）の先頭をクリック"""
+    name = page.evaluate(
+        """(navWords) => {
+            const links = Array.from(document.querySelectorAll('a')).filter(a => {
+                const t = a.innerText.trim();
+                const h = a.getAttribute('href') || '';
+                if (!t || t.length < 2) return false;
+                if (navWords.some(w => t === w || t.includes('スキップ'))) return false;
+                return h.includes('doAction') || h.includes('sendBld') || h.includes('send');
+            });
+            if (links.length) { const t = links[0].innerText.trim(); links[0].click(); return t; }
+            return null;
+        }""", list(NAV_WORDS))
+    print(f"[INFO] 本文リンク先頭をクリック: {name}")
+    return name
 
 
 def main():
@@ -66,67 +88,52 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_context(
-            locale="ja-JP", viewport={"width": 1300, "height": 1400}).new_page()
+            locale="ja-JP", viewport={"width": 1300, "height": 1600}).new_page()
 
-        print(f"[INFO] かんたん画面 {KANTAN_URL} を開いています…")
-        page.goto(KANTAN_URL, wait_until="domcontentloaded", timeout=60000)
-        time.sleep(3)
-        dump(page, "00_kantan_home")
+        # ---- A) かんたん画面 ----
+        for i, (ward, kan) in enumerate(TARGETS):
+            print(f"[INFO] === {ward} / {kan} ===")
+            page.goto(KANTAN_URL, wait_until="domcontentloaded", timeout=60000)
+            wait(page)
+            click_link_by_text(page, "予約")
+            wait(page)
+            click_link_by_text(page, "地域から")
+            wait(page)
+            if not click_link_by_text(page, ward):
+                continue
+            wait(page)
+            if not click_link_by_text(page, kan):
+                dump(page, f"{i}0_{ward}_kanlist_fail")
+                continue
+            wait(page)
+            dump(page, f"{i}1_{kan}_room_list")   # 部屋(施設)一覧
+            room = click_first_content_link(page)
+            wait(page)
+            dump(page, f"{i}2_{kan}_month_view")  # 一ヶ月表示
+            # カレンダーの空きアイコン（全て空き/一部空き）をクリック → 週表示
+            page.evaluate(
+                """() => {
+                    const cand = Array.from(document.querySelectorAll('a')).find(a => {
+                        const alt = a.querySelector('img')?.alt || '';
+                        return alt.includes('空');
+                    });
+                    if (cand) cand.click();
+                }"""
+            )
+            wait(page)
+            dump(page, f"{i}3_{kan}_week_view")   # 週(日別)表示
 
-        # メニュー「予約」
-        click_any(page, ["予約"])
-        dump(page, "01_yoyaku_menu")
-
-        # 「地域から」
-        click_any(page, ["地域から", "地域から探す", "地域"])
-        dump(page, "02_chiiki_select")
-
-        # 各区の館一覧を採取（区→館一覧→戻るを繰り返す）
-        for i, ward in enumerate(WARDS):
-            if click_any(page, [ward]):
-                dump(page, f"03_ward{i}_{ward}_kan_list")
-                if ward == "川崎区":
-                    # 川崎区だけさらに深掘り: 先頭の館→施設一覧→先頭施設→月表示→週表示
-                    clicked = page.evaluate(
-                        """() => {
-                            const links = Array.from(document.querySelectorAll('a'))
-                                .filter(a => a.offsetParent !== null && a.innerText.trim().length > 2
-                                        && !/戻る|ホーム|メニュー|ログイン/.test(a.innerText));
-                            if (links.length) { links[0].click(); return links[0].innerText.trim(); }
-                            return null;
-                        }"""
-                    )
-                    print(f"[INFO] 館を選択: {clicked}")
-                    time.sleep(3)
-                    dump(page, "04_shisetsu_list")
-                    clicked2 = page.evaluate(
-                        """() => {
-                            const links = Array.from(document.querySelectorAll('a'))
-                                .filter(a => a.offsetParent !== null && a.innerText.trim().length > 2
-                                        && !/戻る|ホーム|メニュー|ログイン/.test(a.innerText));
-                            if (links.length) { links[0].click(); return links[0].innerText.trim(); }
-                            return null;
-                        }"""
-                    )
-                    print(f"[INFO] 施設を選択: {clicked2}")
-                    time.sleep(3)
-                    dump(page, "05_month_view")
-                    # 月表示の「丸/三角」アイコンをクリックして週(日別)表示へ
-                    page.evaluate(
-                        """() => {
-                            const imgs = Array.from(document.querySelectorAll(
-                                'a img[alt*="空"], a img[alt*="全て"], a img[alt*="一部"], td a'))
-                                .filter(e => e.offsetParent !== null);
-                            if (imgs.length) (imgs[0].closest('a') || imgs[0]).click();
-                        }"""
-                    )
-                    time.sleep(3)
-                    dump(page, "06_week_view")
-                # 地域選択へ戻る
-                page.goto(KANTAN_URL, wait_until="domcontentloaded", timeout=60000)
-                time.sleep(2)
-                click_any(page, ["予約"])
-                click_any(page, ["地域から", "地域から探す", "地域"])
+        # ---- B) スマートフォン画面 ----
+        print("[INFO] === スマートフォン画面 ===")
+        page.goto(SP_URL, wait_until="domcontentloaded", timeout=60000)
+        wait(page)
+        dump(page, "90_sp_home")
+        if click_link_by_text(page, "施設空き状況"):
+            wait(page)
+            dump(page, "91_sp_vacancy_step1")
+            name = click_first_content_link(page)
+            wait(page)
+            dump(page, "92_sp_vacancy_step2")
 
         print("[INFO] 調査完了。Artifactsから debug/ を回収してください。")
         browser.close()
