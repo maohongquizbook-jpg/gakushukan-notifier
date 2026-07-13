@@ -29,11 +29,12 @@ import yaml
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 BASE_DIR = Path(__file__).parent
-CONFIG_PATH = BASE_DIR / "config.yaml"
-STATE_PATH = BASE_DIR / "state.json"
+CONFIG_PATH = BASE_DIR / "config.yaml"   # --config で上書き可
+STATE_PATH = BASE_DIR / "state.json"     # --state で上書き可
 DEBUG_DIR = BASE_DIR / "debug"
 
-BASE_URL = "https://www.shinjuku.eprs.jp/regasu/web/"
+BASE_URL = "https://www.shinjuku.eprs.jp/regasu/web/"  # configのbase_urlで上書き可
+NOTIFY_LABEL = "午後＋夜間"  # configのnotify_labelで上書き可
 CATEGORY_SHOGAI_GAKUSHUKAN = "1000_1650"  # #bname の「生涯学習館」
 
 SYMBOL_MAP = {
@@ -50,8 +51,8 @@ WEEKDAY_JA = "月火水木金土日"
 
 # ---------------------------------------------------------------- config
 
-def load_config() -> dict:
-    with open(CONFIG_PATH, encoding="utf-8") as f:
+def load_config(path=None) -> dict:
+    with open(path or CONFIG_PATH, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cfg.setdefault("required_slots", ["午後", "夜間"])
     cfg.setdefault("check_interval_min", 5)
@@ -295,7 +296,7 @@ def expand_daily(page) -> int:
 
 
 def search_window(page, cfg: dict, start_iso: str, days_value: str,
-                  debug: bool, tag: str):
+                  debug: bool, tag: str, bname_value=None):
     """開始日と期間を指定して検索し、日付順一覧を解析する。
     戻り値: (slots, ok, 行数)"""
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
@@ -327,16 +328,17 @@ def search_window(page, cfg: dict, start_iso: str, days_value: str,
         }""",
         {"start": start_iso, "days": days_value},
     )
-    # どこで: 生涯学習館
-    page.evaluate(
-        """(val) => {
-            const sel = document.getElementById('bname');
-            sel.value = val;
-            sel.dispatchEvent(new Event('change', { bubbles: true }));
-            if (typeof filterInst === 'function') { try { filterInst(); } catch (e) {} }
-        }""",
-        cfg["category_value"],
-    )
+    # どこで（bname）を指定（Noneなら選択しない）
+    if bname_value:
+        page.evaluate(
+            """(val) => {
+                const sel = document.getElementById('bname');
+                sel.value = val;
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+                if (typeof filterInst === 'function') { try { filterInst(); } catch (e) {} }
+            }""",
+            bname_value,
+        )
     time.sleep(0.8)
 
     page.evaluate("() => document.getElementById('btn-go').click()")
@@ -397,8 +399,8 @@ def fetch_availability(cfg: dict, debug: bool):
         end = horizon_end_date(today, int(cfg.get("horizon_months", 3)))
     total_days = (end - today).days + 1
     print(f"[INFO] 検索範囲: {today.isoformat()} 〜 {end.isoformat()} ({total_days}日間)")
-    queue = [((today + timedelta(days=off)).isoformat(), "7")
-             for off in range(0, total_days, 7)]
+    base_queue = [((today + timedelta(days=off)).isoformat(), "7")
+                  for off in range(0, total_days, 7)]
 
     all_slots = {}
     all_ok = True
@@ -410,28 +412,53 @@ def fetch_availability(cfg: dict, debug: bool):
                         "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
         )
         page = context.new_page()
+
+        # 「どこで」(bname) の値リストを決定。
+        #  - category_value 指定あり → その1つだけ
+        #  - bname_values: auto → ページから選択肢を自動取得（複数施設を順に検索）
+        if cfg.get("category_value"):
+            bnames = [cfg["category_value"]]
+        elif cfg.get("bname_values") == "auto" or cfg.get("bname_values"):
+            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("#btn-go", timeout=30000)
+            opts = page.evaluate(
+                """() => Array.from(document.querySelectorAll('#bname option'))
+                        .filter(o => o.value && o.value !== '0')
+                        .map(o => ({v: o.value, t: o.textContent.trim()}))"""
+            )
+            print(f"[INFO] どこで(bname)の選択肢: {opts}")
+            if cfg.get("bname_values") == "auto":
+                bnames = [o["v"] for o in opts]
+            else:
+                bnames = cfg["bname_values"]
+        else:
+            bnames = [None]
+
         i = 0
-        while queue:
-            start_iso, days_value = queue.pop(0)
-            i += 1
-            tag = f"w{i}"
-            try:
-                slots, ok, rows = search_window(page, cfg, start_iso, days_value, debug, tag)
-            except Exception as e:
-                print(f"[ERROR] {tag} の取得中に例外: {e}")
-                all_ok = False
-                continue
-            if not ok:
-                all_ok = False
-                continue
-            if rows >= DAILY_ROW_CAP and days_value in SPLIT_MAP:
-                print(f"[INFO] {tag}: 行数が上限に達したため期間を分割して再取得します")
-                base = date.fromisoformat(start_iso)
-                for off, dv in SPLIT_MAP[days_value]:
-                    queue.insert(0, ((base + timedelta(days=off)).isoformat(), dv))
-                continue  # このウィンドウの結果は破棄し、分割分で取り直す
-            all_slots.update(slots)
-            time.sleep(1)  # サーバー負荷への配慮
+        for bname in bnames:
+            queue = list(base_queue)
+            while queue:
+                start_iso, days_value = queue.pop(0)
+                i += 1
+                tag = f"w{i}"
+                try:
+                    slots, ok, rows = search_window(page, cfg, start_iso, days_value,
+                                                    debug, tag, bname_value=bname)
+                except Exception as e:
+                    print(f"[ERROR] {tag} の取得中に例外: {e}")
+                    all_ok = False
+                    continue
+                if not ok:
+                    all_ok = False
+                    continue
+                if rows >= DAILY_ROW_CAP and days_value in SPLIT_MAP:
+                    print(f"[INFO] {tag}: 行数が上限に達したため期間を分割して再取得します")
+                    base = date.fromisoformat(start_iso)
+                    for off, dv in SPLIT_MAP[days_value]:
+                        queue.insert(0, ((base + timedelta(days=off)).isoformat(), dv))
+                    continue
+                all_slots.update(slots)
+                time.sleep(1)  # サーバー負荷への配慮
 
         browser.close()
 
@@ -508,15 +535,34 @@ def build_groups(raw_slots: dict) -> dict:
     return groups
 
 
+import unicodedata
+
+
+def match_allowlist(room_text: str, allowlist: list):
+    """部屋名が許可リストに一致するか。一致したエントリ（fee/capacity付き）を返す。"""
+    norm = unicodedata.normalize("NFKC", room_text)
+    for entry in allowlist:
+        if all(unicodedata.normalize("NFKC", kw) in norm for kw in entry["keywords"]):
+            return entry
+    return None
+
+
 def find_matched(groups: dict, cfg: dict) -> dict:
     required = cfg["required_slots"]
     flt = cfg.get("facility_filter") or []
+    allowlist = cfg.get("room_allowlist") or []
     matched = {}
     for gkey, g in groups.items():
         if not g["is_target"]:
             continue
         if flt and not any(f in gkey for f in flt):
             continue
+        if allowlist:
+            entry = match_allowlist(g["room"], allowlist)
+            if entry is None:
+                continue
+            g["fee"] = entry.get("fee")
+            g["capacity"] = entry.get("capacity")
         if all(g["slots"].get(s) in AVAILABLE_STATES for s in required):
             matched[gkey] = g
     return matched
@@ -551,7 +597,15 @@ def format_group_line(gkey: str, g: dict, reopened: bool) -> str:
     else:
         day = gkey.split("|")[-1]
     tag = " ♻️再度空き" if reopened else ""
-    return f"・**{day}** {g['room']}（午後＋夜間）{tag}"
+    extra = ""
+    if g.get("capacity") or g.get("fee"):
+        parts = []
+        if g.get("capacity"):
+            parts.append(f"定員{g['capacity']}名")
+        if g.get("fee"):
+            parts.append(f"計{g['fee']:,}円")
+        extra = f" [{'・'.join(parts)}]"
+    return f"・**{day}** {g['room']}（{NOTIFY_LABEL}）{extra}{tag}"
 
 
 def notify_discord(webhook_url: str, items: list, dry_run: bool):
@@ -568,7 +622,7 @@ def notify_discord(webhook_url: str, items: list, dry_run: bool):
         payload = {
             "content": "@here" if not dry_run else "",
             "embeds": [{
-                "title": "🎉 土日祝 午後＋夜間の連続空きが出ました"
+                "title": f"🎉 土日祝 {NOTIFY_LABEL}の連続空きが出ました"
                          + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""),
                 "description": chunk + f"\n[予約システムを開く]({BASE_URL})",
                 "color": 0x2ECC71,
@@ -618,7 +672,7 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool):
             "title": "🔔 テスト通知: 監視システムは動作しています",
             "description": (
                 f"{status}\n\n"
-                f"**🎯 午後＋夜間の連続空き（通知対象）: {len(matched)}件**\n{pair_body}\n\n"
+                f"**🎯 {NOTIFY_LABEL}の連続空き（通知対象）: {len(matched)}件**\n{pair_body}\n\n"
                 f"**現在の土日祝の空きコマ（全体）: {len(avail)}件**\n{body}\n\n"
                 "※これはテスト通知です。実際の通知は上の🎯に新しい枠が"
                 "現れた時にだけ届きます。\n"
@@ -651,7 +705,7 @@ def format_lost_key(gkey: str) -> str:
     if d:
         wd = WEEKDAY_JA[d.weekday()]
         hol = "・祝" if jpholiday.is_holiday(d) else ""
-        return f"・**{d.month}/{d.day}({wd}{hol})** {room}（午後＋夜間）"
+        return f"・**{d.month}/{d.day}({wd}{hol})** {room}（{NOTIFY_LABEL}）"
     return f"・{gkey}"
 
 
@@ -668,7 +722,7 @@ def notify_lost(webhook_url: str, keys: list, dry_run: bool):
     for i, chunk in enumerate(chunks):
         payload = {
             "embeds": [{
-                "title": "📕 午後＋夜間の連続空きが埋まりました"
+                "title": f"📕 {NOTIFY_LABEL}の連続空きが埋まりました"
                          + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""),
                 "description": chunk + f"\n[予約システムを開く]({BASE_URL})",
                 "color": 0xE74C3C,
@@ -746,9 +800,25 @@ def main():
     ap.add_argument("--loop", action="store_true")
     ap.add_argument("--test", action="store_true",
                     help="取得結果の要約をテスト通知としてDiscordへ必ず送る")
+    ap.add_argument("--config", default=str(CONFIG_PATH), help="設定ファイルのパス")
+    ap.add_argument("--state", default=None, help="状態ファイルのパス")
     args = ap.parse_args()
 
-    cfg = load_config()
+    cfg = load_config(args.config)
+    # サイトごとの上書き
+    global BASE_URL, SLOT_WINDOWS, NOTIFY_LABEL, STATE_PATH
+    BASE_URL = cfg.get("base_url", BASE_URL)
+    if cfg.get("slot_windows"):
+        SLOT_WINDOWS = {k: tuple(v) for k, v in cfg["slot_windows"].items()}
+        globals()["SLOT_WINDOWS"] = SLOT_WINDOWS
+    # 時間帯の語リストは常にSLOT_WINDOWSから導出（長い名前を先に照合: 午後1 が 午後 より優先）
+    globals()["TIME_SLOT_WORDS"] = tuple(
+        sorted(SLOT_WINDOWS.keys(), key=len, reverse=True))
+    NOTIFY_LABEL = cfg.get("notify_label", NOTIFY_LABEL)
+    if args.state:
+        STATE_PATH = Path(args.state)
+    elif cfg.get("state_file"):
+        STATE_PATH = BASE_DIR / cfg["state_file"]
     if args.test:
         raw, ok = fetch_availability(cfg, debug=True)  # テスト時は常に画面を保存
         send_test_notification(cfg, raw, ok, dry_run=args.dry_run)
