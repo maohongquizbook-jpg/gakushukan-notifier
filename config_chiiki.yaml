@@ -1,0 +1,82 @@
+# ===== 新宿区 地域センター 監視設定 =====
+# Discord Webhook URL（GitHub Actionsで使う場合は空のままにし、SecretsのDISCORD_WEBHOOK_CHIIKIに登録）
+discord_webhook_url: ""
+
+base_url: "https://www.shinjuku.eprs.jp/chiiki/web/"
+state_file: "state_chiiki.json"
+notify_label: "昼間＋夜間"
+
+# 「どこで」の選択肢をページから自動取得し、全センターを順に検索する
+bname_values: auto
+category_value: ""
+
+# 地域センターの時間区分（利用案内で確認済み）
+slot_windows:
+  午前:  [900, 1200]
+  午後1: [1300, 1500]
+  午後2: [1515, 1715]
+  夜間1: [1730, 1930]
+  夜間2: [1945, 2145]
+
+# 通知条件: 昼間＋夜間 = 午後1〜夜間2の4区分すべてが空き（13:00〜21:45連続）
+required_slots:
+  - 午後1
+  - 午後2
+  - 夜間1
+  - 夜間2
+
+# 対象の部屋（定員11名以上 かつ 午後1+午後2+夜間1+夜間2の合計が5,000円以内・一般団体料金）
+# fee = 4区分合計の使用料（一般団体＝「その他一般団体料金」基準）。
+# 区公式の料金一覧PDF(令和8年7月版)から作成。PDFの表組みが複雑なため料金は目安です。
+# 登録団体として使う場合はこの半額程度になります。
+# keywords はすべて部屋名に含まれる場合に一致（全角半角は自動吸収）
+room_allowlist:
+  # --- 四谷 ---
+  - {keywords: [四谷, 目的利用], capacity: 15, fee: 3600}   # 和室(目的利用A/B) ※料金要確認
+  # --- 牛込箪笥 ---
+  - {keywords: [箪笥, なつめ], capacity: 12, fee: 3000}
+  - {keywords: [箪笥, つつじ], capacity: 25, fee: 4000}
+  # --- 榎町 ---
+  - {keywords: [榎, 大会議室], capacity: 21, fee: 4000}      # A/B両方対象
+  - {keywords: [榎, 小会議室], capacity: 12, fee: 2600}      # ※料金要確認
+  - {keywords: [榎, 軽音楽室], capacity: 18, fee: 3600}
+  - {keywords: [榎, 調理室], capacity: 15, fee: 4800}
+  - {keywords: [榎, ホールB], capacity: 32, fee: 4800}       # 葬儀優先枠あり
+  # --- 若松 ---
+  - {keywords: [若松, 第2集会室A], capacity: 24, fee: 4000}
+  - {keywords: [若松, 第2集会室B], capacity: 24, fee: 4400}
+  - {keywords: [若松, はなみずき], capacity: 20, fee: 4400}  # 和室
+  # --- 大久保 ---
+  - {keywords: [大久保, 会議室B], capacity: 30, fee: 3600}
+  - {keywords: [大久保, 会議室C], capacity: 24, fee: 3000}
+  # --- 戸塚 ---
+  - {keywords: [戸塚, 会議室2], capacity: 18, fee: 2600}
+  - {keywords: [戸塚, 会議室3], capacity: 12, fee: 2200}
+  - {keywords: [戸塚, 会議室4], capacity: 12, fee: 2200}
+  - {keywords: [戸塚, 音楽室], capacity: 20, fee: 4200}
+  - {keywords: [戸塚, 調理], capacity: 12, fee: 4400}        # 調理・手工芸室
+  - {keywords: [戸塚, 集会室2], capacity: 16, fee: 2800}     # 地下・葬儀優先枠あり
+  # --- 落合第一 ---
+  - {keywords: [落合第一, 第2集会室], capacity: 24, fee: 4800}
+  - {keywords: [落合第一, 和室控室], capacity: 12, fee: 2200} # 葬儀優先枠あり
+  - {keywords: [落合第一, ホールB], capacity: 24, fee: 4800}  # 葬儀優先枠あり
+  # --- 落合第二 ---
+  - {keywords: [落合第二, 大会議室A], capacity: 24, fee: 4600}
+  - {keywords: [落合第二, 大会議室B], capacity: 24, fee: 4800}
+  - {keywords: [落合第二, 小会議室], capacity: 18, fee: 4000}
+  - {keywords: [落合第二, 音楽室], capacity: 18, fee: 4000}
+  - {keywords: [落合第二, 和室], capacity: 30, fee: 5000}
+  - {keywords: [落合第二, 工芸美術室], capacity: 12, fee: 3600}
+  - {keywords: [落合第二, 調理室], capacity: 12, fee: 3600}
+  - {keywords: [落合第二, 茶室], capacity: 12, fee: 1800}
+  # --- 柏木 ---
+  - {keywords: [柏木, 会議室1B], capacity: 12, fee: 4000}
+  # --- 角筈 ---
+  - {keywords: [角筈, 会議室B], capacity: 24, fee: 4000}
+
+# 公開範囲: 登録団体は利用月の2か月前の第1土曜受付 → 2か月先の月末まで
+horizon_months: 2
+
+notify_filled: true
+check_interval_min: 30
+active_hours: [7, 23]
