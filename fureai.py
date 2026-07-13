@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-川崎市 ふれあいネット 調査スクリプト【フェーズ1・v3】
+川崎市 ふれあいネット 調査スクリプト【フェーズ1・v4: スマートフォン画面版】
 
-採取内容:
- A) かんたん画面: 予約→地域から→各区→代表館→施設(部屋)一覧→月表示→週表示
-    ・教育文化会館(川崎区)・幸市民館(幸区)・中原市民館(中原区)の部屋一覧
- B) スマートフォン画面(/sp/): 施設空き状況 の画面遷移
+/sp/ の空き照会フローを辿って各画面を採取する。
+経路: 認証前メニュー → 施設空き状況 → 地域から → 区 → 館 → 施設(部屋) → 空きカレンダー
+対象: 教育文化会館(川崎区)・幸市民館(幸区)・中原市民館(中原区)
 
 使い方: python fureai.py --debug
 """
@@ -16,30 +15,25 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-KANTAN_URL = "https://www.fureai-net.city.kawasaki.jp/web/"
 SP_URL = "https://www.fureai-net.city.kawasaki.jp/sp/"
 DEBUG_DIR = Path(__file__).parent / "debug"
-
-# (区, 館) の採取対象
 TARGETS = [("川崎区", "教育文化会館"), ("幸区", "幸市民館"), ("中原区", "中原市民館")]
-
-NAV_WORDS = ("サイトマップ", "ヘルプ", "ホーム", "ログイン", "戻る", "メニュー",
-             "本文", "すべて", "利用者登録", "各種申請書", "施設案内", "予約",
-             "抽選", "小", "中", "大", "緑", "青", "赤")
+NAV_WORDS = ("TOP画面へ", "戻る", "メニュー", "認証", "お知らせ", "こちら",
+             "施設案内", "イベント", "抽選", "利用者登録", "tel:")
 
 
 def dump(page, tag):
     DEBUG_DIR.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     try:
-        page.screenshot(path=str(DEBUG_DIR / f"{ts}_fureai_{tag}.png"), full_page=True)
-        (DEBUG_DIR / f"{ts}_fureai_{tag}.html").write_text(page.content(), encoding="utf-8")
+        page.screenshot(path=str(DEBUG_DIR / f"{ts}_sp_{tag}.png"), full_page=True)
+        (DEBUG_DIR / f"{ts}_sp_{tag}.html").write_text(page.content(), encoding="utf-8")
         print(f"[DEBUG] {tag} を保存")
     except Exception as e:
         print(f"[WARN] dump失敗 {tag}: {e}")
 
 
-def wait(page, sec=2.5):
+def wait(page, sec=1.5):
     try:
         page.wait_for_load_state("networkidle", timeout=15000)
     except PWTimeout:
@@ -47,37 +41,26 @@ def wait(page, sec=2.5):
     time.sleep(sec)
 
 
-def click_link_by_text(page, text) -> bool:
-    """innerTextが一致する<a>をJSで直接クリック（画像リンク・非表示でも動く）"""
+def click_text(page, text) -> bool:
     ok = page.evaluate(
         """(t) => {
             const links = Array.from(document.querySelectorAll('a'));
             const hit = links.find(a => a.innerText.trim() === t)
-                     || links.find(a => a.innerText.includes(t))
-                     || links.find(a => (a.querySelector('img')?.alt || '').includes(t));
+                     || links.find(a => a.innerText.includes(t));
             if (hit) { hit.click(); return true; }
             return false;
         }""", text)
-    print(f"[INFO] リンク「{text}」: {'クリック' if ok else '見つからず'}")
+    print(f"[INFO] 「{text}」: {'クリック' if ok else '見つからず'}")
     return ok
 
 
-def click_first_content_link(page) -> str:
-    """ナビ以外の本文リンク（doAction/sendBld系）の先頭をクリック"""
-    name = page.evaluate(
-        """(navWords) => {
-            const links = Array.from(document.querySelectorAll('a')).filter(a => {
-                const t = a.innerText.trim();
-                const h = a.getAttribute('href') || '';
-                if (!t || t.length < 2) return false;
-                if (navWords.some(w => t === w || t.includes('スキップ'))) return false;
-                return h.includes('doAction') || h.includes('sendBld') || h.includes('send');
-            });
-            if (links.length) { const t = links[0].innerText.trim(); links[0].click(); return t; }
-            return null;
-        }""", list(NAV_WORDS))
-    print(f"[INFO] 本文リンク先頭をクリック: {name}")
-    return name
+def list_links(page):
+    return page.evaluate(
+        """(nav) => Array.from(document.querySelectorAll('a'))
+            .map(a => ({t: a.innerText.trim(), h: a.getAttribute('href') || ''}))
+            .filter(x => x.t && x.h.includes('.do')
+                    && !nav.some(w => x.t.includes(w) || x.h.startsWith('tel')))""",
+        list(NAV_WORDS))
 
 
 def main():
@@ -88,52 +71,44 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_context(
-            locale="ja-JP", viewport={"width": 1300, "height": 1600}).new_page()
+            locale="ja-JP", viewport={"width": 480, "height": 1200}).new_page()
 
-        # ---- A) かんたん画面 ----
         for i, (ward, kan) in enumerate(TARGETS):
             print(f"[INFO] === {ward} / {kan} ===")
-            page.goto(KANTAN_URL, wait_until="domcontentloaded", timeout=60000)
+            page.goto(SP_URL, wait_until="domcontentloaded", timeout=60000)
             wait(page)
-            click_link_by_text(page, "予約")
+            click_text(page, "施設空き状況")
             wait(page)
-            click_link_by_text(page, "地域から")
+            if i == 0:
+                dump(page, "10_vacancy_top")
+            click_text(page, "地域から")
             wait(page)
-            if not click_link_by_text(page, ward):
+            if i == 0:
+                dump(page, "11_area_select")
+            if not click_text(page, ward):
+                dump(page, f"{i}_ward_fail")
                 continue
             wait(page)
-            if not click_link_by_text(page, kan):
-                dump(page, f"{i}0_{ward}_kanlist_fail")
+            if i == 0:
+                dump(page, f"12_{ward}_kan_list")
+            if not click_text(page, kan):
+                dump(page, f"{i}_kan_fail")
                 continue
             wait(page)
-            dump(page, f"{i}1_{kan}_room_list")   # 部屋(施設)一覧
-            room = click_first_content_link(page)
-            wait(page)
-            dump(page, f"{i}2_{kan}_month_view")  # 一ヶ月表示
-            # カレンダーの空きアイコン（全て空き/一部空き）をクリック → 週表示
-            page.evaluate(
-                """() => {
-                    const cand = Array.from(document.querySelectorAll('a')).find(a => {
-                        const alt = a.querySelector('img')?.alt || '';
-                        return alt.includes('空');
-                    });
-                    if (cand) cand.click();
-                }"""
-            )
-            wait(page)
-            dump(page, f"{i}3_{kan}_week_view")   # 週(日別)表示
-
-        # ---- B) スマートフォン画面 ----
-        print("[INFO] === スマートフォン画面 ===")
-        page.goto(SP_URL, wait_until="domcontentloaded", timeout=60000)
-        wait(page)
-        dump(page, "90_sp_home")
-        if click_link_by_text(page, "施設空き状況"):
-            wait(page)
-            dump(page, "91_sp_vacancy_step1")
-            name = click_first_content_link(page)
-            wait(page)
-            dump(page, "92_sp_vacancy_step2")
+            dump(page, f"2{i}_{kan}_room_list")
+            print(f"[INFO] {kan} のリンク一覧: {list_links(page)[:15]}")
+            # 先頭の部屋（.doリンク）をクリック
+            rooms = list_links(page)
+            if rooms:
+                click_text(page, rooms[0]["t"])
+                wait(page)
+                dump(page, f"3{i}_{kan}_vacancy_cal")
+                # 次表示（翌週/翌月など）があればもう1画面
+                nxt = [l for l in list_links(page) if any(w in l["t"] for w in ("翌", "次"))]
+                if nxt:
+                    click_text(page, nxt[0]["t"])
+                    wait(page)
+                    dump(page, f"4{i}_{kan}_vacancy_next")
 
         print("[INFO] 調査完了。Artifactsから debug/ を回収してください。")
         browser.close()
