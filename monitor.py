@@ -68,13 +68,14 @@ def load_config(path=None) -> dict:
 
 # ---------------------------------------------------------------- scraping
 
-def dump_debug(page, tag: str):
+def dump_debug(page, tag: str, screenshot: bool = True):
     DEBUG_DIR.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    try:
-        page.screenshot(path=str(DEBUG_DIR / f"{ts}_{tag}.png"), full_page=True)
-    except Exception:
-        pass
+    if screenshot:
+        try:
+            page.screenshot(path=str(DEBUG_DIR / f"{ts}_{tag}.png"), full_page=True)
+        except Exception:
+            pass
     try:
         (DEBUG_DIR / f"{ts}_{tag}.html").write_text(page.content(), encoding="utf-8")
     except Exception:
@@ -368,14 +369,15 @@ def search_window(page, cfg: dict, start_iso: str, days_value: str,
 
     rows = expand_daily(page)
     if debug:
-        dump_debug(page, f"daily_{tag}")
+        dump_debug(page, f"daily_{tag}", screenshot=False)
     slots = parse_daily_list(page)
     print(f"[INFO] {tag} ({start_iso}〜{days_value}日間): {rows}行 / {len(slots)}コマ")
     return slots, True, rows
 
 
 # 期間の細分化: 100行の上限に達した場合の分割パターン（daysの選択肢は 1/2/3/7/31 のみ）
-SPLIT_MAP = {"7": [(0, "3"), (3, "3"), (6, "1")],
+SPLIT_MAP = {"31": [(0, "7"), (7, "7"), (14, "7"), (21, "7"), (28, "3")],
+             "7": [(0, "3"), (3, "3"), (6, "1")],
              "3": [(0, "1"), (1, "1"), (2, "1")],
              "2": [(0, "1"), (1, "1")]}
 
@@ -399,8 +401,9 @@ def fetch_availability(cfg: dict, debug: bool):
         end = horizon_end_date(today, int(cfg.get("horizon_months", 3)))
     total_days = (end - today).days + 1
     print(f"[INFO] 検索範囲: {today.isoformat()} 〜 {end.isoformat()} ({total_days}日間)")
-    base_queue = [((today + timedelta(days=off)).isoformat(), "7")
-                  for off in range(0, total_days, 7)]
+    # 月単位で検索し、100行上限に達した月だけ週単位に自動分割する
+    base_queue = [((today + timedelta(days=off)).isoformat(), "31")
+                  for off in range(0, total_days, 31)]
 
     all_slots = {}
     all_ok = True
@@ -820,7 +823,7 @@ def main():
     elif cfg.get("state_file"):
         STATE_PATH = BASE_DIR / cfg["state_file"]
     if args.test:
-        raw, ok = fetch_availability(cfg, debug=True)  # テスト時は常に画面を保存
+        raw, ok = fetch_availability(cfg, debug=args.debug)
         send_test_notification(cfg, raw, ok, dry_run=args.dry_run)
         sys.exit(0)
     if not args.loop:
