@@ -432,6 +432,7 @@ def fetch_availability(cfg: dict, debug: bool):
 
     all_slots = {}
     all_ok = True
+    failed_ranges = []  # 取得に失敗した (開始日ISO, 日数) のリスト
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -449,7 +450,7 @@ def fetch_availability(cfg: dict, debug: bool):
         elif cfg.get("bname_values") == "auto" or cfg.get("bname_values"):
             if not open_home(page, debug, "discovery"):
                 browser.close()
-                return {}, False
+                return {}, False, [(today.isoformat(), total_days)]
             opts = page.evaluate(
                 """() => Array.from(document.querySelectorAll('#bname option'))
                         .filter(o => o.value && o.value !== '0')
@@ -470,15 +471,20 @@ def fetch_availability(cfg: dict, debug: bool):
                 start_iso, days_value = queue.pop(0)
                 i += 1
                 tag = f"w{i}"
-                try:
-                    slots, ok, rows = search_window(page, cfg, start_iso, days_value,
-                                                    debug, tag, bname_value=bname)
-                except Exception as e:
-                    print(f"[ERROR] {tag} の取得中に例外: {e}")
-                    all_ok = False
-                    continue
+                slots, ok, rows = {}, False, 0
+                for attempt in range(2):  # 失敗時は1回だけ即時リトライ
+                    try:
+                        slots, ok, rows = search_window(page, cfg, start_iso, days_value,
+                                                        debug, tag, bname_value=bname)
+                    except Exception as e:
+                        print(f"[ERROR] {tag} の取得中に例外: {type(e).__name__}")
+                        ok = False
+                    if ok:
+                        break
+                    time.sleep(5)
                 if not ok:
                     all_ok = False
+                    failed_ranges.append((start_iso, int(days_value)))
                     continue
                 if rows >= DAILY_ROW_CAP and days_value in SPLIT_MAP:
                     print(f"[INFO] {tag}: 行数が上限に達したため期間を分割して再取得します")
@@ -491,12 +497,11 @@ def fetch_availability(cfg: dict, debug: bool):
 
         browser.close()
 
-    if all_ok:
-        n_avail = sum(1 for v in all_slots.values() if v in AVAILABLE_STATES)
-        print(f"[INFO] 合計 {len(all_slots)} コマ取得（うち空き {n_avail}）")
-    else:
-        print("[WARN] 一部期間の取得に失敗しました。今回の結果は保存せず次回に再試行します。")
-    return all_slots, all_ok
+    n_avail = sum(1 for v in all_slots.values() if v in AVAILABLE_STATES)
+    print(f"[INFO] 合計 {len(all_slots)} コマ取得（うち空き {n_avail}）")
+    if failed_ranges:
+        print(f"[WARN] {len(failed_ranges)} 期間の取得に失敗。該当期間は前回の状態を引き継ぎます: {failed_ranges}")
+    return all_slots, all_ok, failed_ranges
 
 
 # ---------------------------------------------------------------- 条件判定
@@ -780,11 +785,33 @@ def notify_lost(webhook_url: str, keys: list, dry_run: bool):
 
 # ---------------------------------------------------------------- main
 
-def run_once(cfg: dict, args) -> bool:
-    raw, ok = fetch_availability(cfg, debug=args.debug)
-    if not ok:
-        print("[ERROR] 空き状況を取得できませんでした。debug/ の result_parsefail を確認してください。")
+def in_failed_range(iso: str, failed_ranges: list) -> bool:
+    from datetime import timedelta
+    d = parse_date_from_text(iso)
+    if not d:
         return False
+    for start_iso, days in failed_ranges:
+        s = date.fromisoformat(start_iso)
+        if s <= d < s + timedelta(days=days):
+            return True
+    return False
+
+
+def run_once(cfg: dict, args) -> bool:
+    raw, ok, failed_ranges = fetch_availability(cfg, debug=args.debug)
+    if not raw and failed_ranges:
+        print("[ERROR] 空き状況を1件も取得できませんでした。次回に再試行します。")
+        return False
+
+    state0 = load_state()
+    if failed_ranges and state0.get("slots"):
+        carried = 0
+        for k, st in state0["slots"].items():
+            if in_failed_range(k.split("|")[-1], failed_ranges):
+                if k not in raw:
+                    raw[k] = st
+                    carried += 1
+        print(f"[INFO] 取得失敗期間のコマ {carried} 件を前回状態から引き継ぎました")
 
     groups = build_groups(raw)
     matched = find_matched(groups, cfg)
@@ -858,8 +885,9 @@ def main():
     elif cfg.get("state_file"):
         STATE_PATH = BASE_DIR / cfg["state_file"]
     if args.test:
-        raw, ok = fetch_availability(cfg, debug=args.debug)
-        send_test_notification(cfg, raw, ok, dry_run=args.dry_run)
+        raw, ok, failed_ranges = fetch_availability(cfg, debug=args.debug)
+        errors = [f"{s}から{d}日間の取得に失敗" for s, d in failed_ranges] or None
+        send_test_notification(cfg, raw, ok, dry_run=args.dry_run, errors=errors)
         sys.exit(0)
     if not args.loop:
         ok = run_once(cfg, args)
