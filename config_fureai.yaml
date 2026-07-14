@@ -34,13 +34,13 @@ targets:
   - ward: 川崎区
     kan: プラザ大師
     rooms:
-      - {name: 会議室, fee: 4836}
-      - {name: 学習室, fee: 4836}
+      - {name: 第１学習室, fee: 4836}
+      - {name: 第２学習室, fee: 4836}
   - ward: 川崎区
     kan: プラザ田島
     rooms:
-      - {name: 会議室, fee: 4836}
-      - {name: 学習室, fee: 4836}
+      - {name: 第１学習室, fee: 4836}
+      - {name: 第２学習室, fee: 4836}
   - ward: 幸区
     kan: 幸市民館
     rooms:
@@ -51,8 +51,10 @@ targets:
   - ward: 幸区
     kan: 日吉分館
     rooms:
-      - {name: 会議室, fee: 4836}
-      - {name: 学習室, fee: 4836}
+      - {name: 第１学習室, fee: 4836}
+      - {name: 第２学習室, fee: 4836}
+      - {name: 第３学習室, fee: 4836}
+      - {name: 第４学習室, fee: 4836}
   - ward: 中原区
     kan: 中原市民館
     rooms:
