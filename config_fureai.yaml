@@ -1,0 +1,65 @@
+# ===== 川崎市 ふれあいネット 会議室監視設定 =====
+# Webhook（GitHub ActionsではSecretsのDISCORD_WEBHOOK_FUREAIから注入）
+discord_webhook_url: ""
+
+state_file: "state_fureai.json"
+notify_label: "午後＋夜間"
+
+# 市民館系の時間区分（午後13:00-17:00 / 夜間17:30-21:00前後）
+slot_windows:
+  午前: [900, 1200]
+  午後: [1300, 1700]
+  夜間: [1730, 2130]
+
+required_slots:
+  - 午後
+  - 夜間
+
+# 監視対象（川崎区・幸区・中原区 / 定員11名以上 / 午後+夜間の土日祝料金 5,000円以内）
+# fee = 午後+夜間の合計（平日料金×1.2の土日祝料金）。
+# 幸市民館・日吉分館・プラザ大師/田島は市民館共通単価からの推定額（※要確認）
+targets:
+  - ward: 川崎区
+    kan: 教育文化会館
+    rooms:
+      - {name: 第１会議室, fee: 4836}
+      - {name: 第２会議室, fee: 4836}
+      - {name: 第３会議室, fee: 3492}
+      - {name: 第１学習室, fee: 4836}
+      - {name: 第２学習室, fee: 4836}
+      - {name: 第３学習室, fee: 4836}
+      - {name: 第４学習室, fee: 3492}
+      - {name: 第５学習室, fee: 4836}
+      - {name: 第６学習室, fee: 4836}
+  - ward: 川崎区
+    kan: プラザ大師
+    rooms:
+      - {name: 会議室, fee: 4836}
+      - {name: 学習室, fee: 4836}
+  - ward: 川崎区
+    kan: プラザ田島
+    rooms:
+      - {name: 会議室, fee: 4836}
+      - {name: 学習室, fee: 4836}
+  - ward: 幸区
+    kan: 幸市民館
+    rooms:
+      - {name: 第１会議室, fee: 4836}
+      - {name: 第２会議室, fee: 4836}
+      - {name: 第３会議室, fee: 4836}
+      - {name: 第４会議室, fee: 4836}
+  - ward: 幸区
+    kan: 日吉分館
+    rooms:
+      - {name: 会議室, fee: 4836}
+      - {name: 学習室, fee: 4836}
+  - ward: 中原区
+    kan: 中原市民館
+    rooms:
+      - {name: 第１会議室, fee: 4836}
+      - {name: 第２会議室, fee: 4836}
+      - {name: 第３会議室, fee: 4836}
+      - {name: 第４会議室, fee: 4836}
+      - {name: 第５会議室, fee: 4836}
+
+notify_filled: true
