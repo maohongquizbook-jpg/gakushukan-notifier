@@ -35,6 +35,7 @@ DEBUG_DIR = BASE_DIR / "debug"
 
 BASE_URL = "https://www.shinjuku.eprs.jp/regasu/web/"  # configのbase_urlで上書き可
 NOTIFY_LABEL = "午後＋夜間"  # configのnotify_labelで上書き可
+INCLUDE_MANSION_IN_ROOM = False  # 日付順の「館」列を部屋名に含める（地域センター用）
 CATEGORY_SHOGAI_GAKUSHUKAN = "1000_1650"  # #bname の「生涯学習館」
 
 SYMBOL_MAP = {
@@ -214,8 +215,10 @@ def parse_daily_list(page) -> dict:
                 const m = tr.id.match(/^(\d{8})_(\d+)_(\d+)_(\d{3,4})_\d+$/);
                 if (!m) return;
                 const fac = tr.querySelector('td.facility a, td.facility');
+                const man = tr.querySelector('td.mansion a, td.mansion');
                 out.push({ date: m[1], start: m[4],
                            room: fac ? fac.innerText.trim().replace(/\s+/g, ' ') : '',
+                           mansion: man ? man.innerText.trim().replace(/\s+/g, ' ') : '',
                            text: (tr.innerText || '').replace(/\s+/g, ' ') });
             });
             return out;
@@ -226,6 +229,8 @@ def parse_daily_list(page) -> dict:
         d = r["date"]
         iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
         room = r["room"] or "(部屋不明)"
+        if INCLUDE_MANSION_IN_ROOM and r.get("mansion"):
+            room = f"{r['mansion']}・{room}"
         times = re.findall(r"(\d{1,2})[:時](\d{2})", r.get("text", ""))
         nums = [int(h) * 100 + int(m) for h, m in times if int(h) <= 24]
         if nums:
@@ -839,6 +844,7 @@ def main():
     globals()["TIME_SLOT_WORDS"] = tuple(
         sorted(SLOT_WINDOWS.keys(), key=len, reverse=True))
     NOTIFY_LABEL = cfg.get("notify_label", NOTIFY_LABEL)
+    globals()["INCLUDE_MANSION_IN_ROOM"] = bool(cfg.get("include_mansion_in_room"))
     if args.state:
         STATE_PATH = Path(args.state)
     elif cfg.get("state_file"):
