@@ -63,3 +63,6 @@ targets:
       - {name: 第５会議室, fee: 4836}
 
 notify_filled: true
+
+# 何日先まで確認するか（市民館系は4か月前から空き確認可能。日数を増やすと実行時間が伸びます）
+horizon_days: 70
