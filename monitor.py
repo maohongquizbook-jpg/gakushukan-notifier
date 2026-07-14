@@ -680,10 +680,12 @@ def format_slot_key(k: str) -> str:
     return k
 
 
-def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool):
+def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool,
+                           matched: dict = None, errors: list = None):
     """--test 用: 取得結果の要約をDiscordへ送る（条件成立の有無に関係なく必ず送信）。"""
     avail = sorted(k for k, v in raw_slots.items() if v in AVAILABLE_STATES)
-    matched = find_matched(build_groups(raw_slots), cfg)
+    if matched is None:
+        matched = find_matched(build_groups(raw_slots), cfg)
     ordered = sorted(matched.items(), key=lambda kv: (kv[1]["date"] or date.max, kv[0]))
     pair_lines = [f"・{format_group_line(k, g, False).lstrip('・')}"
                   for k, g in ordered]
@@ -695,12 +697,18 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool):
     if len(avail) > 25:
         lines.append(f"…ほか {len(avail) - 25} 件")
     body = "\n".join(lines) if lines else "（現在、土日祝の空きコマはありません）"
-    status = "✅ 取得成功" if ok else "⚠️ 取得失敗（要確認）"
+    status = "✅ 取得成功" if ok else "⚠️ 一部取得失敗（下記参照）"
+    err_body = ""
+    if errors:
+        lines_e = "\n".join(f"・{e}" for e in errors[:15])
+        if len(errors) > 15:
+            lines_e += f"\n…ほか {len(errors) - 15} 件"
+        err_body = f"\n**⚠️ 取得できなかった対象: {len(errors)}件**\n{lines_e}\n"
     payload = {
         "embeds": [{
             "title": "🔔 テスト通知: 監視システムは動作しています",
             "description": (
-                f"{status}\n\n"
+                f"{status}\n{err_body}\n"
                 f"**🎯 {NOTIFY_LABEL}の連続空き（通知対象）: {len(matched)}件**\n{pair_body}\n\n"
                 f"**現在の土日祝の空きコマ（全体）: {len(avail)}件**\n{body}\n\n"
                 "※これはテスト通知です。実際の通知は上の🎯に新しい枠が"
