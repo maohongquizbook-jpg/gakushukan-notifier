@@ -67,59 +67,29 @@ def click_text(page, text) -> bool:
     return ok
 
 
-def parse_vacancy(page) -> dict:
-    """時間帯別空き状況画面を汎用解析して {slot_key: state} を返す。
-    slot_key = "部屋名(呼び出し側で付与するためここでは空)|時間帯|ISO日付"
-    → ここでは {(iso, slot): state} を返し、呼び出し側で部屋名を付ける。"""
-    data = page.evaluate(
-        r"""() => {
-            // テーブルセルとその中の画像alt/テキストを収集
-            const out = { cells: [], text: document.body.innerText };
-            document.querySelectorAll('table tr').forEach((tr, r) => {
-                const row = [];
-                tr.querySelectorAll('th, td').forEach(td => {
-                    const img = td.querySelector('img');
-                    row.push({ t: (td.innerText || '').trim().replace(/\s+/g, ' '),
-                               alt: img ? (img.alt || '') : '' });
-                });
-                if (row.length) out.cells.push(row);
-            });
-            return out;
-        }"""
-    )
-    result = {}
-    cur_date = None
-    slot_cols = {}
-    for row in data["cells"]:
-        texts = [c["t"] for c in row]
-        rowtext = " ".join(texts)
-        d = core.parse_date_from_text(rowtext)
-        # ヘッダ行: 時間帯の列位置を記録
-        for i, c in enumerate(row):
-            for w in ("午前", "午後", "夜間"):
-                if w == c["t"].strip()[:2]:
-                    slot_cols[i] = w
-        if d:
-            cur_date = d
-        if cur_date is None:
+def parse_vacancy(page):
+    """施設空き検索結果(時間帯貸し)画面を解析する。1日分の表示:
+    「… 2026年7月18日(土) 空き情報 午前 × 午後 × 夜間 ○ …」
+    戻り値: (iso_date, {slot: state}) / 解析不能なら (None, {})"""
+    text = page.evaluate("() => document.body.innerText.replace(/\\s+/g, ' ')")
+    d = core.parse_date_from_text(text)
+    if not d:
+        return None, {}
+    states = {}
+    for slot in ("午前", "午後", "夜間"):
+        m = re.search(slot + r"[ \u3000]*([○◯〇◎△×✕－\-]|空きなし|一部空き|空き)", text)
+        if not m:
             continue
-        # 行内に日付とマークがある形式 / 列ヘッダ形式の両対応
-        row_d = d or cur_date
-        for i, c in enumerate(row):
-            mark = c["alt"] or c["t"]
-            state = None
-            if any(m in mark for m in MARK_PARTIAL):
-                state = "partially"
-            elif any(m in mark for m in MARK_AVAILABLE) and "空きなし" not in mark:
-                state = "available"
-            elif "×" in mark or "予約" in mark or "空きなし" in mark:
-                state = "full"
-            if state is None:
-                continue
-            slot = slot_cols.get(i) or core.find_slot_word(rowtext, c["t"], mark)
-            if slot:
-                result[(row_d.isoformat(), slot)] = state
-    return result
+        mark = m.group(1)
+        if mark in ("○", "◯", "〇", "◎", "空き"):
+            states[slot] = "available"
+        elif mark in ("△", "一部空き"):
+            states[slot] = "partially"
+        elif mark in ("×", "✕", "空きなし"):
+            states[slot] = "full"
+        else:
+            states[slot] = "closed"
+    return d.isoformat(), states
 
 
 def fetch_availability(cfg: dict, debug: bool):
@@ -194,21 +164,24 @@ def fetch_availability(cfg: dict, debug: bool):
                         dump(page, f"result_sample_{kan}_{rname}")
                         dumped_sample = True
 
-                    pairs = parse_vacancy(page)
-                    # 「次へ」「翌週」などのページ送りを追う（最大30回）
-                    for _ in range(30):
-                        moved = False
-                        for nav in ("次の期間", "翌週", "次へ", "次の週"):
-                            if click_text(page, nav):
-                                moved = True
-                                break
-                        if not moved:
+                    # 土日祝フィルタ済みの1日表示を「翌日」で送りながら収集
+                    from datetime import timedelta
+                    horizon_end = (today + timedelta(
+                        days=int(cfg.get("horizon_days", 70)))).isoformat()
+                    pairs = {}
+                    prev_iso = None
+                    for _ in range(80):
+                        iso, states = parse_vacancy(page)
+                        if not iso or iso == prev_iso:
                             break
-                        wait(page, 1.0)
-                        more = parse_vacancy(page)
-                        if not more:
+                        prev_iso = iso
+                        for slot, state in states.items():
+                            pairs[(iso, slot)] = state
+                        if iso >= horizon_end:
                             break
-                        pairs.update(more)
+                        if not click_text(page, "翌日"):
+                            break
+                        wait(page, 0.6)
 
                     if not pairs:
                         print(f"[WARN] {kan}/{rname}: 空き状況を解析できませんでした")
