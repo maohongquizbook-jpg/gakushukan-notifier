@@ -53,8 +53,24 @@ def wait(page, sec=1.2):
     time.sleep(sec)
 
 
+def safe_eval(page, script, arg=None):
+    """ページ遷移中の「実行コンテキスト破棄」に耐えるevaluate（最大3回リトライ）"""
+    last = None
+    for i in range(3):
+        try:
+            return page.evaluate(script, arg) if arg is not None else page.evaluate(script)
+        except Exception as e:
+            last = e
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=10000)
+            except Exception:
+                pass
+            time.sleep(0.8)
+    raise last
+
+
 def click_text(page, text) -> bool:
-    ok = page.evaluate(
+    ok = safe_eval(page,
         """(t) => {
             const links = Array.from(document.querySelectorAll('a, input[type=submit], button'));
             const hit = links.find(e => (e.innerText || e.value || '').trim() === t)
@@ -71,7 +87,7 @@ def parse_vacancy(page):
     """施設空き検索結果(時間帯貸し)画面を解析する。1日分の表示:
     「… 2026年7月18日(土) 空き情報 午前 × 午後 × 夜間 ○ …」
     戻り値: (iso_date, {slot: state}) / 解析不能なら (None, {})"""
-    text = page.evaluate("() => document.body.innerText.replace(/\\s+/g, ' ')")
+    text = safe_eval(page, "() => document.body.innerText.replace(/\\s+/g, ' ')")
     d = core.parse_date_from_text(text)
     if not d:
         return None, {}
@@ -92,12 +108,44 @@ def parse_vacancy(page):
     return d.isoformat(), states
 
 
+def walk_to_room_list(page, ward: str, kan: str) -> bool:
+    """トップから 施設空き状況→地域から→区→館 と辿って部屋一覧に立つ。"""
+    try:
+        page.goto(SP_URL, wait_until="domcontentloaded", timeout=60000)
+        wait(page)
+        if not click_text(page, "施設空き状況"):
+            return False
+        wait(page)
+        if not click_text(page, "地域から"):
+            return False
+        wait(page)
+        if not click_text(page, ward):
+            return False
+        wait(page)
+        if not click_text(page, kan):
+            return False
+        wait(page)
+        return True
+    except Exception as e:
+        print(f"[WARN] {ward}/{kan} への移動でエラー: {type(e).__name__}")
+        return False
+
+
+def on_room_list(page) -> bool:
+    try:
+        return "施設選択" in (page.title() or "")
+    except Exception:
+        return False
+
+
 def fetch_availability(cfg: dict, debug: bool):
+    from datetime import timedelta
     all_slots = {}
-    ok = True
     errors = []
     today = date.today()
+    horizon_end = (today + timedelta(days=int(cfg.get("horizon_days", 70)))).isoformat()
     dumped_sample = False
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_context(
@@ -106,28 +154,19 @@ def fetch_availability(cfg: dict, debug: bool):
         for tgt in cfg["targets"]:
             ward, kan = tgt["ward"], tgt["kan"]
             print(f"[INFO] === {ward} / {kan} ===")
-            try:
-                page.goto(SP_URL, wait_until="domcontentloaded", timeout=60000)
-                wait(page)
-                click_text(page, "施設空き状況"); wait(page)
-                click_text(page, "地域から"); wait(page)
-                if not click_text(page, ward):
-                    ok = False
-                    errors.append(f"{ward}: 区リンクが見つかりません")
-                    continue
-                wait(page)
-                if not click_text(page, kan):
-                    print(f"[WARN] 館「{kan}」が見つかりません")
-                    dump(page, f"kanfail_{kan}")
-                    ok = False
-                    errors.append(f"{ward}/{kan}: 館が見つかりません")
-                    continue
-                wait(page)
+            if not walk_to_room_list(page, ward, kan):
+                errors.append(f"{ward}/{kan}: 部屋一覧に到達できません")
+                dump(page, f"kanfail_{kan}", screenshot=False)
+                continue
 
-                # 部屋一覧を全ページ収集（「次へ」対応）し、対象部屋を順に処理
-                for room_cfg in tgt["rooms"]:
-                    rname = room_cfg["name"]
-                    # 部屋一覧ページに戻っている前提。部屋リンクを探す（次へページも探索）
+            for room_cfg in tgt["rooms"]:
+                rname = room_cfg["name"]
+                try:
+                    # 部屋一覧に立っていなければ復帰
+                    if not on_room_list(page) and not walk_to_room_list(page, ward, kan):
+                        errors.append(f"{kan}/{rname}: 部屋一覧に復帰できません")
+                        continue
+                    # 部屋リンクを探す（「次へ」ページも探索）
                     found = False
                     for _ in range(5):
                         if click_text(page, rname):
@@ -140,18 +179,12 @@ def fetch_availability(cfg: dict, debug: bool):
                         print(f"[WARN] 部屋「{rname}」が見つかりません（{kan}）")
                         errors.append(f"{kan}/{rname}: 部屋が見つかりません")
                         dump(page, f"roomfail_{kan}_{rname}", screenshot=False)
-                        # 一覧の先頭ページへ戻す
-                        page.goto(SP_URL, wait_until="domcontentloaded", timeout=60000)
-                        wait(page)
-                        click_text(page, "施設空き状況"); wait(page)
-                        click_text(page, "地域から"); wait(page)
-                        click_text(page, ward); wait(page)
-                        click_text(page, kan); wait(page)
+                        walk_to_room_list(page, ward, kan)
                         continue
                     wait(page)
 
-                    # 期間設定: 今日の日付＋土日祝チェック → 検索開始
-                    page.evaluate(
+                    # 期間設定: 今日＋土日祝チェック → 検索開始
+                    safe_eval(page,
                         """(p) => {
                             const f = document.FORM1 || document.forms[0];
                             if (!f) return;
@@ -164,7 +197,7 @@ def fetch_availability(cfg: dict, debug: bool):
                         }""",
                         {"y": today.year, "m": today.month, "d": today.day})
                     if not click_text(page, "検索開始"):
-                        page.evaluate("() => (document.FORM1 || document.forms[0]).submit()")
+                        safe_eval(page, "() => (document.FORM1 || document.forms[0]).submit()")
                     wait(page, 1.5)
 
                     if debug and not dumped_sample:
@@ -172,9 +205,6 @@ def fetch_availability(cfg: dict, debug: bool):
                         dumped_sample = True
 
                     # 土日祝フィルタ済みの1日表示を「翌日」で送りながら収集
-                    from datetime import timedelta
-                    horizon_end = (today + timedelta(
-                        days=int(cfg.get("horizon_days", 70)))).isoformat()
                     pairs = {}
                     prev_iso = None
                     for _ in range(80):
@@ -192,31 +222,33 @@ def fetch_availability(cfg: dict, debug: bool):
 
                     if not pairs:
                         print(f"[WARN] {kan}/{rname}: 空き状況を解析できませんでした")
-                        dump(page, f"parsefail_{kan}_{rname}", screenshot=False)
-                        ok = False
                         errors.append(f"{kan}/{rname}: 空き状況を解析できず")
+                        dump(page, f"parsefail_{kan}_{rname}", screenshot=False)
                     else:
                         n = sum(1 for v in pairs.values() if v in core.AVAILABLE_STATES)
                         print(f"[INFO] {kan}/{rname}: {len(pairs)}コマ（空き{n}）")
                         room_label = f"{kan}・{rname}"
                         for (iso, slot), state in pairs.items():
-                            key = f"{room_label}|{slot}|{iso}"
-                            all_slots[key] = state
-                            # 料金・定員表示用
-                    time.sleep(1)
+                            all_slots[f"{room_label}|{slot}|{iso}"] = state
+                    time.sleep(0.8)
 
-                    # 部屋一覧へ戻る
-                    for back in ("もどる", "戻る"):
-                        if click_text(page, back):
+                    # 部屋一覧へ戻る（もどる×2 → ダメなら再ウォーク）
+                    for _ in range(3):
+                        if on_room_list(page):
                             break
-                    wait(page, 0.8)
-            except Exception as e:
-                print(f"[ERROR] {ward}/{kan} でエラー: {e}")
-                ok = False
-                errors.append(f"{ward}/{kan}: 実行時エラー {type(e).__name__}")
+                        if not click_text(page, "もどる"):
+                            break
+                        wait(page, 0.6)
+                    if not on_room_list(page):
+                        walk_to_room_list(page, ward, kan)
+
+                except Exception as e:
+                    print(f"[ERROR] {kan}/{rname} でエラー: {type(e).__name__}: {e}")
+                    errors.append(f"{kan}/{rname}: 実行時エラー {type(e).__name__}")
+                    walk_to_room_list(page, ward, kan)
+
         browser.close()
-    if errors:
-        ok = False
+    ok = not errors
     return all_slots, ok, errors
 
 
