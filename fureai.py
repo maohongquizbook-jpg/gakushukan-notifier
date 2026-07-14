@@ -95,6 +95,7 @@ def parse_vacancy(page):
 def fetch_availability(cfg: dict, debug: bool):
     all_slots = {}
     ok = True
+    errors = []
     today = date.today()
     dumped_sample = False
     with sync_playwright() as p:
@@ -111,12 +112,16 @@ def fetch_availability(cfg: dict, debug: bool):
                 click_text(page, "施設空き状況"); wait(page)
                 click_text(page, "地域から"); wait(page)
                 if not click_text(page, ward):
-                    ok = False; continue
+                    ok = False
+                    errors.append(f"{ward}: 区リンクが見つかりません")
+                    continue
                 wait(page)
                 if not click_text(page, kan):
                     print(f"[WARN] 館「{kan}」が見つかりません")
                     dump(page, f"kanfail_{kan}")
-                    ok = False; continue
+                    ok = False
+                    errors.append(f"{ward}/{kan}: 館が見つかりません")
+                    continue
                 wait(page)
 
                 # 部屋一覧を全ページ収集（「次へ」対応）し、対象部屋を順に処理
@@ -133,6 +138,8 @@ def fetch_availability(cfg: dict, debug: bool):
                         wait(page, 0.8)
                     if not found:
                         print(f"[WARN] 部屋「{rname}」が見つかりません（{kan}）")
+                        errors.append(f"{kan}/{rname}: 部屋が見つかりません")
+                        dump(page, f"roomfail_{kan}_{rname}", screenshot=False)
                         # 一覧の先頭ページへ戻す
                         page.goto(SP_URL, wait_until="domcontentloaded", timeout=60000)
                         wait(page)
@@ -187,6 +194,7 @@ def fetch_availability(cfg: dict, debug: bool):
                         print(f"[WARN] {kan}/{rname}: 空き状況を解析できませんでした")
                         dump(page, f"parsefail_{kan}_{rname}", screenshot=False)
                         ok = False
+                        errors.append(f"{kan}/{rname}: 空き状況を解析できず")
                     else:
                         n = sum(1 for v in pairs.values() if v in core.AVAILABLE_STATES)
                         print(f"[INFO] {kan}/{rname}: {len(pairs)}コマ（空き{n}）")
@@ -205,8 +213,11 @@ def fetch_availability(cfg: dict, debug: bool):
             except Exception as e:
                 print(f"[ERROR] {ward}/{kan} でエラー: {e}")
                 ok = False
+                errors.append(f"{ward}/{kan}: 実行時エラー {type(e).__name__}")
         browser.close()
-    return all_slots, ok
+    if errors:
+        ok = False
+    return all_slots, ok, errors
 
 
 def apply_fees(matched: dict, cfg: dict):
@@ -245,12 +256,13 @@ def main():
     core.STATE_PATH = BASE_DIR / cfg.get("state_file", "state_fureai.json")
     core.BASE_URL = SP_URL
 
-    raw, ok = fetch_availability(cfg, debug=args.debug or args.test)
+    raw, ok, errors = fetch_availability(cfg, debug=args.debug or args.test)
 
     if args.test:
         matched = core.find_matched(core.build_groups(raw), cfg)
         apply_fees(matched, cfg)
-        core.send_test_notification(cfg, raw, ok, dry_run=args.dry_run)
+        core.send_test_notification(cfg, raw, ok, dry_run=args.dry_run,
+                                    matched=matched, errors=errors)
         sys.exit(0)
 
     if not ok and not raw:
