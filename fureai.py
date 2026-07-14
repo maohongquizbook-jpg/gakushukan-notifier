@@ -142,6 +142,7 @@ def fetch_availability(cfg: dict, debug: bool):
     from datetime import timedelta
     all_slots = {}
     errors = []
+    failed_rooms = set()
     today = date.today()
     horizon_end = (today + timedelta(days=int(cfg.get("horizon_days", 70)))).isoformat()
     dumped_sample = False
@@ -156,6 +157,7 @@ def fetch_availability(cfg: dict, debug: bool):
             print(f"[INFO] === {ward} / {kan} ===")
             if not walk_to_room_list(page, ward, kan):
                 errors.append(f"{ward}/{kan}: 部屋一覧に到達できません")
+                failed_rooms |= {f"{kan}・{r['name']}" for r in tgt["rooms"]}
                 dump(page, f"kanfail_{kan}", screenshot=False)
                 continue
 
@@ -165,6 +167,7 @@ def fetch_availability(cfg: dict, debug: bool):
                     # 部屋一覧に立っていなければ復帰
                     if not on_room_list(page) and not walk_to_room_list(page, ward, kan):
                         errors.append(f"{kan}/{rname}: 部屋一覧に復帰できません")
+                        failed_rooms.add(f"{kan}・{rname}")
                         continue
                     # 部屋リンクを探す（「次へ」ページも探索）
                     found = False
@@ -178,6 +181,7 @@ def fetch_availability(cfg: dict, debug: bool):
                     if not found:
                         print(f"[WARN] 部屋「{rname}」が見つかりません（{kan}）")
                         errors.append(f"{kan}/{rname}: 部屋が見つかりません")
+                        failed_rooms.add(f"{kan}・{rname}")
                         dump(page, f"roomfail_{kan}_{rname}", screenshot=False)
                         walk_to_room_list(page, ward, kan)
                         continue
@@ -223,6 +227,7 @@ def fetch_availability(cfg: dict, debug: bool):
                     if not pairs:
                         print(f"[WARN] {kan}/{rname}: 空き状況を解析できませんでした")
                         errors.append(f"{kan}/{rname}: 空き状況を解析できず")
+                        failed_rooms.add(f"{kan}・{rname}")
                         dump(page, f"parsefail_{kan}_{rname}", screenshot=False)
                     else:
                         n = sum(1 for v in pairs.values() if v in core.AVAILABLE_STATES)
@@ -245,11 +250,12 @@ def fetch_availability(cfg: dict, debug: bool):
                 except Exception as e:
                     print(f"[ERROR] {kan}/{rname} でエラー: {type(e).__name__}: {e}")
                     errors.append(f"{kan}/{rname}: 実行時エラー {type(e).__name__}")
+                    failed_rooms.add(f"{kan}・{rname}")
                     walk_to_room_list(page, ward, kan)
 
         browser.close()
     ok = not errors
-    return all_slots, ok, errors
+    return all_slots, ok, errors, failed_rooms
 
 
 def apply_fees(matched: dict, cfg: dict):
@@ -288,7 +294,7 @@ def main():
     core.STATE_PATH = BASE_DIR / cfg.get("state_file", "state_fureai.json")
     core.BASE_URL = SP_URL
 
-    raw, ok, errors = fetch_availability(cfg, debug=args.debug or args.test)
+    raw, ok, errors, failed_rooms = fetch_availability(cfg, debug=args.debug or args.test)
 
     if args.test:
         matched = core.find_matched(core.build_groups(raw), cfg)
@@ -297,9 +303,18 @@ def main():
                                     matched=matched, errors=errors)
         sys.exit(0)
 
-    if not ok and not raw:
-        print("[ERROR] 空き状況を取得できませんでした")
+    if not raw and errors:
+        print("[ERROR] 空き状況を1件も取得できませんでした。次回に再試行します")
         sys.exit(1)
+
+    state0 = core.load_state()
+    if failed_rooms and state0.get("slots"):
+        carried = 0
+        for k, st in state0["slots"].items():
+            if k.split("|")[0] in failed_rooms and k not in raw:
+                raw[k] = st
+                carried += 1
+        print(f"[INFO] 取得失敗した部屋のコマ {carried} 件を前回状態から引き継ぎました")
 
     groups = core.build_groups(raw)
     matched = core.find_matched(groups, cfg)
@@ -333,14 +348,11 @@ def main():
             d = core.parse_date_from_text(k.split("|")[-1])
             if d and d >= date.today():
                 lost.append(k)
-        if lost and ok:  # 取得失敗時の誤検知を防ぐ
+        if lost:
             core.notify_lost(cfg.get("discord_webhook_url", ""), sorted(lost), dry_run=args.dry_run)
 
-    if ok:
-        ever |= set(matched.keys())
-        core.save_state(raw, list(matched.keys()), ever)
-    else:
-        print("[WARN] 一部取得に失敗したため状態は更新しません")
+    ever |= set(matched.keys())
+    core.save_state(raw, list(matched.keys()), ever)
 
 
 if __name__ == "__main__":
