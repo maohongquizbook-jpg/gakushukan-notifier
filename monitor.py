@@ -265,6 +265,26 @@ CLICK_MORE_JS = """() => {
 }"""
 
 
+def open_home(page, debug: bool = False, tag: str = "home") -> bool:
+    """トップページを開いて検索フォームが現れるまで待つ。失敗時は3回までリトライ。"""
+    last_err = None
+    for attempt in range(3):
+        try:
+            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("#btn-go", state="attached", timeout=25000)
+            return True
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] トップページ読み込み失敗 ({attempt + 1}/3): {type(e).__name__}")
+            time.sleep(15 * (attempt + 1))
+    print(f"[ERROR] トップページに到達できません: {last_err}")
+    try:
+        dump_debug(page, f"homefail_{tag}")
+    except Exception:
+        pass
+    return False
+
+
 def expand_daily(page) -> int:
     """「さらに表示」をなくなるまで展開し、読み込めた行数を返す。"""
     clicks, misses = 0, 0
@@ -300,8 +320,8 @@ def search_window(page, cfg: dict, start_iso: str, days_value: str,
                   debug: bool, tag: str, bname_value=None):
     """開始日と期間を指定して検索し、日付順一覧を解析する。
     戻り値: (slots, ok, 行数)"""
-    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_selector("#btn-go", timeout=30000)
+    if not open_home(page, debug, tag):
+        return {}, False, 0
     time.sleep(0.8)
 
     # 折りたたみを開き、曜日（土日祝）を設定
@@ -422,8 +442,9 @@ def fetch_availability(cfg: dict, debug: bool):
         if cfg.get("category_value"):
             bnames = [cfg["category_value"]]
         elif cfg.get("bname_values") == "auto" or cfg.get("bname_values"):
-            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("#btn-go", timeout=30000)
+            if not open_home(page, debug, "discovery"):
+                browser.close()
+                return {}, False
             opts = page.evaluate(
                 """() => Array.from(document.querySelectorAll('#bname option'))
                         .filter(o => o.value && o.value !== '0')
