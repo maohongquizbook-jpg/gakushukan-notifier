@@ -8,6 +8,9 @@ notify_label: "昼間＋夜間"
 
 # 「どこで」の選択肢をページから自動取得し、全センターを順に検索する
 bname_values: auto
+
+# 日付順の「館」列（センター名）を部屋名に含める（許可リスト照合に必要）
+include_mansion_in_room: true
 category_value: ""
 
 # 地域センターの時間区分（利用案内で確認済み）
