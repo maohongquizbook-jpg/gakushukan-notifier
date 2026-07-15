@@ -270,6 +270,16 @@ CLICK_MORE_JS = """() => {
 }"""
 
 
+def log_failure(text: str):
+    """失敗内容をテキストで debug/ に必ず残す（Artifactsで回収可能にする）"""
+    try:
+        DEBUG_DIR.mkdir(exist_ok=True)
+        with open(DEBUG_DIR / "failure_log.txt", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} {text}\n")
+    except Exception:
+        pass
+
+
 def open_home(page, debug: bool = False, tag: str = "home") -> bool:
     """トップページを開いて検索フォームが現れるまで待つ。失敗時は3回までリトライ。"""
     last_err = None
@@ -283,6 +293,7 @@ def open_home(page, debug: bool = False, tag: str = "home") -> bool:
             print(f"[WARN] トップページ読み込み失敗 ({attempt + 1}/3): {type(e).__name__}")
             time.sleep(15 * (attempt + 1))
     print(f"[ERROR] トップページに到達できません: {last_err}")
+    log_failure(f"open_home失敗 tag={tag} err={type(last_err).__name__}")
     try:
         dump_debug(page, f"homefail_{tag}")
     except Exception:
@@ -461,8 +472,11 @@ def fetch_availability(cfg: dict, debug: bool):
                 bnames = [o["v"] for o in opts]
             else:
                 bnames = cfg["bname_values"]
+            bname_names = {o["v"]: o["t"] for o in opts}
         else:
             bnames = [None]
+        if "bname_names" not in dir():
+            bname_names = {}
 
         i = 0
         for bname in bnames:
@@ -485,6 +499,9 @@ def fetch_availability(cfg: dict, debug: bool):
                 if not ok:
                     all_ok = False
                     failed_ranges.append((start_iso, int(days_value)))
+                    label = bname_names.get(bname, bname or "")
+                    log_failure(f"{tag} 失敗: {label} {start_iso}〜{days_value}日間")
+                    print(f"[WARN] {tag} 失敗: {label} {start_iso}〜{days_value}日間")
                     continue
                 if rows >= DAILY_ROW_CAP and days_value in SPLIT_MAP:
                     print(f"[INFO] {tag}: 行数が上限に達したため期間を分割して再取得します")
