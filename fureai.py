@@ -149,13 +149,30 @@ def fetch_availability(cfg: dict, debug: bool):
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_context(
-            locale="ja-JP", viewport={"width": 480, "height": 1400}).new_page()
+
+        def fresh_page(old=None):
+            """セッション(Cookie)を作り直した新しいページを返す"""
+            if old is not None:
+                try:
+                    old.context.close()
+                except Exception:
+                    pass
+            return browser.new_context(
+                locale="ja-JP", viewport={"width": 480, "height": 1400}).new_page()
+
+        page = fresh_page()
 
         for tgt in cfg["targets"]:
             ward, kan = tgt["ward"], tgt["kan"]
             print(f"[INFO] === {ward} / {kan} ===")
-            if not walk_to_room_list(page, ward, kan):
+            reached = walk_to_room_list(page, ward, kan)
+            if not reached:
+                # セッション破損（有効期限切れ等）の可能性 → 新セッションで再試行
+                print(f"[INFO] {kan}: 新しいセッションで再試行します")
+                page = fresh_page(page)
+                time.sleep(3)
+                reached = walk_to_room_list(page, ward, kan)
+            if not reached:
                 errors.append(f"{ward}/{kan}: 部屋一覧に到達できません")
                 failed_rooms |= {f"{kan}・{r['name']}" for r in tgt["rooms"]}
                 dump(page, f"kanfail_{kan}", screenshot=False)
@@ -164,11 +181,14 @@ def fetch_availability(cfg: dict, debug: bool):
             for room_cfg in tgt["rooms"]:
                 rname = room_cfg["name"]
                 try:
-                    # 部屋一覧に立っていなければ復帰
+                    # 部屋一覧に立っていなければ復帰（ダメなら新セッションで再試行）
                     if not on_room_list(page) and not walk_to_room_list(page, ward, kan):
-                        errors.append(f"{kan}/{rname}: 部屋一覧に復帰できません")
-                        failed_rooms.add(f"{kan}・{rname}")
-                        continue
+                        page = fresh_page(page)
+                        time.sleep(3)
+                        if not walk_to_room_list(page, ward, kan):
+                            errors.append(f"{kan}/{rname}: 部屋一覧に復帰できません")
+                            failed_rooms.add(f"{kan}・{rname}")
+                            continue
                     # 部屋リンクを探す（「次へ」ページも探索）
                     found = False
                     for _ in range(5):
