@@ -68,6 +68,37 @@ targets:
       - {name: 第１会議室, fee: 1700, capacity: 10}   # 単独10名。第2と連結利用で20名になる前提
       - {name: 第２会議室, fee: 1700, capacity: 10}   # 同上（両方空きの通知が揃った時が連結チャンス）
 
+  - ward: 川崎区
+    kan: 老人福祉
+    rooms:  # かわさき老人福祉・地域交流センター。市公式料金PDFで確認済み・土日割増なし
+            # 月〜土(祝日除く)は17時以降のみ利用可のため、午後+夜間の成立は日曜・祝日のみ
+      - {name: 多目的室, fee: 1930, capacity: 24}
+  - ward: 川崎区
+    kan: 川崎マリエン
+    rooms:  # 公式料金表で確認済み。料金は「会議・研修目的の半額」適用時(土日祝2割増込み)
+      - {name: 第２会議室, fee: 1464, capacity: 14}
+      - {name: 第３会議室, fee: 1464, capacity: 14}
+      - {name: 和室, fee: 2196, capacity: 20}
+      - {name: 第１研修室, fee: 3048, capacity: 45}
+  - ward: 幸区
+    kan: 産業振興会館
+    rooms:  # 公式料金表で確認済み。土日祝の割増なし(営利目的のみ2倍)
+      - {name: 第１研修室, fee: 3040, capacity: 24}
+      - {name: 第２会議室, fee: 3460, capacity: 22}
+      - {name: 第３会議室, fee: 3460, capacity: 22}
+      - {name: 和室, fee: 3860, capacity: 18}
+  - ward: 中原区
+    kan: 平和館
+    rooms:  # 市公式ページで確認済み(土日祝欄)。夜間は18:00-21:30
+      - {name: 第１会議室, fee: 3040, capacity: 16}
+      - {name: 第２会議室, fee: 3770, capacity: 24}
+      - {name: 研修室, fee: 1700, capacity: 12}
+  - ward: 中原区
+    kan: 国際交流センター
+    rooms:  # 指定管理者公式料金表で確認済み(平日額×1.2・10円未満切捨て)
+      - {name: 第６会議室, fee: 1080, capacity: 18}
+      - {name: 交流サロン, fee: 2430, capacity: 30}
+
 notify_filled: true
 
 # 何日先まで確認するか（市民館系は4か月前から空き確認可能。日数を増やすと実行時間が伸びます）
