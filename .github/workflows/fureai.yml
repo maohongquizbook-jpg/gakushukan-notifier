@@ -2,13 +2,16 @@ name: fureai-monitor
 
 on:
   schedule:
-    # 30分おき JST 7:00〜22:30
     - cron: "15,45 22,23 * * *"
     - cron: "15,45 0-13 * * *"
   workflow_dispatch:
     inputs:
       test:
-        description: "テスト通知をDiscordへ送る"
+        description: "テスト通知をDiscordへ送る（通常はオフ）"
+        type: boolean
+        default: false
+      reset_state:
+        description: "通知せず現在の空きを基準として再登録（testとは併用不可）"
         type: boolean
         default: false
 
@@ -16,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: fureai
+  group: fureai-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -25,6 +28,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -34,44 +40,44 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-chromium
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
       - name: Install browser
         run: playwright install --with-deps chromium
-      - name: Inject webhook URL
+
+      # Secret は環境変数で渡す。config*.yaml を編集すると git pull --rebase が失敗する。
+      - name: Run monitor
+        id: monitor
+        timeout-minutes: 40
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_FUREAI }}
+          TEST_NOTIFICATION: ${{ inputs.test }}
+          RESET_STATE: ${{ inputs.reset_state }}
         run: |
-          python - <<'PYEOF'
-          import yaml, os
-          cfg = yaml.safe_load(open("config_fureai.yaml", encoding="utf-8"))
-          cfg["discord_webhook_url"] = os.environ["DISCORD_WEBHOOK_URL"]
-          yaml.safe_dump(cfg, open("config_fureai.yaml", "w", encoding="utf-8"), allow_unicode=True)
-          PYEOF
-      - name: Run monitor
-        run: |
-          if [ "${{ github.event.inputs.test }}" = "true" ]; then
+          if [ "$TEST_NOTIFICATION" = "true" ] && [ "$RESET_STATE" = "true" ]; then
+            echo "test と reset_state は併用できません" >&2
+            exit 1
+          elif [ "$TEST_NOTIFICATION" = "true" ]; then
             python fureai.py --test
+          elif [ "$RESET_STATE" = "true" ]; then
+            python fureai.py --reset-state
           else
             python fureai.py
           fi
-      - name: Upload debug files
+
+      # 途中まで送信して後続で失敗した場合も、送信済みのチェックポイントを保存する。
+      - name: Persist state
+        if: ${{ always() && (steps.monitor.outcome == 'success' || steps.monitor.outcome == 'failure') && inputs.test != true }}
+        env:
+          STATE_BRANCH: ${{ github.ref_name }}
+        run: bash scripts/persist_state.sh state_fureai.json "$STATE_BRANCH"
+
+      - name: Upload state backup and debug files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fureai-debug-files
-          path: debug/
+          name: fureai-state-and-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            state_fureai.json
+            debug/
           if-no-files-found: ignore
-      - name: Persist state
-        run: |
-          if [ -f state_fureai.json ]; then
-            git config user.name "monitor-bot"
-            git config user.email "actions@users.noreply.github.com"
-            for i in 1 2 3 4 5; do
-              git add state_fureai.json
-              git commit -m "update fureai state [skip ci]" || echo "no changes"
-              if git pull --rebase origin ${GITHUB_REF_NAME} && git push; then
-                echo "state pushed"; break
-              fi
-              echo "push retry $i"; git rebase --abort 2>/dev/null || true; sleep $((i*7))
-            done
-          fi
+          retention-days: 14
