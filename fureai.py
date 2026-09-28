@@ -218,7 +218,7 @@ def parse_vacancy(page):
         return None, {}
     states = {}
     for slot in ("午前", "午後", "夜間"):
-        m = re.search(slot + r"[ \u3000]*([○◯〇◎△×✕－\-]|空きなし|一部空き|空き)", text)
+        m = re.search(slot + r"[ \u3000]*([○◯〇◎△×✕－\-]|空きなし|一部空き|空き|保守日・主催事業|休館)", text)
         if not m:
             continue
         mark = m.group(1)
@@ -229,6 +229,7 @@ def parse_vacancy(page):
         elif mark in ("×", "✕", "空きなし"):
             states[slot] = "full"
         else:
+            # 休館・主催事業などは利用不可。翌日以降の取得は続ける。
             states[slot] = "closed"
     return d.isoformat(), states
 
