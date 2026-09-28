@@ -16,12 +16,16 @@
 
 import argparse
 import calendar
+import hashlib
 import json
+import os
 import re
 import sys
+import tempfile
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import jpholiday
 import requests
@@ -45,9 +49,19 @@ SYMBOL_MAP = {
     "取": "processing",   # 取消処理中（約30分後に予約可能になる）
     "－": "closed", "-": "closed", "休": "closed", "保": "maintenance",
 }
-AVAILABLE_STATES = {"available", "partially"}
+AVAILABLE_STATES = {"available"}  # 一部空きは「時間帯全体が空き」の証拠にならない
 TIME_SLOT_WORDS = ("午前", "午後", "夜間")
 WEEKDAY_JA = "月火水木金土日"
+JST = ZoneInfo("Asia/Tokyo")
+STATE_VERSION = 2
+
+
+def now_jst():
+    return datetime.now(JST)
+
+
+def today_jst():
+    return now_jst().date()
 
 
 # ---------------------------------------------------------------- config
@@ -60,8 +74,13 @@ def load_config(path=None) -> dict:
     cfg.setdefault("active_hours", [7, 23])
     cfg.setdefault("category_value", CATEGORY_SHOGAI_GAKUSHUKAN)
     cfg.setdefault("horizon_months", 3)
-    cfg.setdefault("notify_filled", True)
+    cfg.setdefault("notify_filled", False)
+    cfg.setdefault("discord_mention", "")
+    cfg.setdefault("closed_confirmations", 2)
     cfg.setdefault("facility_filter", [])
+    # 環境変数はメモリ上だけで読み、追跡中の設定ファイルを書き換えない。
+    if "DISCORD_WEBHOOK_URL" in os.environ:
+        cfg["discord_webhook_url"] = os.environ["DISCORD_WEBHOOK_URL"]
     if not cfg.get("discord_webhook_url"):
         print("[WARN] config.yaml の discord_webhook_url が未設定です。--dry-run 以外では通知できません。")
     return cfg
@@ -224,29 +243,40 @@ def parse_daily_list(page) -> dict:
             return out;
         }"""
     )
-    slots = {}
+    intervals = {}
     for r in rows:
         d = r["date"]
-        iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
-        room = r["room"] or "(部屋不明)"
+        iso = datetime.strptime(d, "%Y%m%d").date().isoformat()
+        room = r["room"]
+        if not room:
+            raise ValueError("日付順一覧の部屋名が不明です")
         if INCLUDE_MANSION_IN_ROOM and r.get("mansion"):
             room = f"{r['mansion']}・{room}"
-        times = re.findall(r"(\d{1,2})[:時](\d{2})", r.get("text", ""))
-        nums = [int(h) * 100 + int(m) for h, m in times if int(h) <= 24]
-        if nums:
-            start, end = min(nums), max(nums)
-        else:
-            try:
-                start = int(r["start"])
-            except ValueError:
-                continue
-            end = start + 400
+        ranges = re.findall(
+            r"(\d{1,2})[:時](\d{2})分?\s*[～〜~－–—-]\s*(\d{1,2})[:時](\d{2})",
+            r.get("text", ""))
+        if not ranges:
+            raise ValueError("日付順一覧の終了時刻が不明です（推測で空きにしません）")
+        for sh, sm, eh, em in ranges:
+            start, end = int(sh) * 60 + int(sm), int(eh) * 60 + int(em)
+            if not (0 <= int(sm) < 60 and 0 <= int(em) < 60 and 0 <= start < end <= 1440):
+                raise ValueError("日付順一覧の時刻が不正です")
+            intervals.setdefault((room, iso), []).append((start, end))
+    slots = {}
+    for (room, iso), spans in intervals.items():
+        merged = []
+        for start, end in sorted(spans):
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+            else:
+                merged.append((start, end))
         for slot, (ws, we) in SLOT_WINDOWS.items():
+            ws, we = ws // 100 * 60 + ws % 100, we // 100 * 60 + we % 100
             key = f"{room}|{slot}|{iso}"
-            if start <= ws and end >= we:
+            if any(start <= ws and end >= we for start, end in merged):
                 slots[key] = "available"
-            elif start < we and end > ws:
-                slots.setdefault(key, "partially")
+            elif any(start < we and end > ws for start, end in merged):
+                slots[key] = "partially"
     return slots
 
 
@@ -430,7 +460,7 @@ def fetch_availability(cfg: dict, debug: bool):
     """1週間ごとに分割して検索し、公開範囲（3か月先の月末）までの空きコマを取得する。
     100行の上限に達した週は自動的に短い期間へ分割して再検索する。"""
     from datetime import timedelta
-    today = date.today()
+    today = today_jst()
     if cfg.get("horizon_days"):  # 日数での明示指定があれば優先
         end = today + timedelta(days=int(cfg["horizon_days"]) - 1)
     else:
@@ -447,7 +477,7 @@ def fetch_availability(cfg: dict, debug: bool):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            locale="ja-JP", viewport={"width": 1400, "height": 1200},
+            locale="ja-JP", timezone_id="Asia/Tokyo", viewport={"width": 1400, "height": 1200},
             user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                         "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
         )
@@ -509,6 +539,12 @@ def fetch_availability(cfg: dict, debug: bool):
                     for off, dv in SPLIT_MAP[days_value]:
                         queue.insert(0, ((base + timedelta(days=off)).isoformat(), dv))
                     continue
+                if rows >= DAILY_ROW_CAP or (rows > 0 and not slots):
+                    # 1日に分けても上限に達する場合、未取得分を満室と断定しない。
+                    all_ok = False
+                    failed_ranges.append((start_iso, int(days_value)))
+                    log_failure(f"{tag}: 一覧の全件取得・解析を確認できません")
+                    continue
                 all_slots.update(slots)
                 time.sleep(1)  # サーバー負荷への配慮
 
@@ -533,7 +569,7 @@ def parse_date_from_text(text: str):
     m = re.search(r"(\d{1,2})[/月](\d{1,2})", text)
     if m:
         month, day = int(m.group(1)), int(m.group(2))
-        today = date.today()
+        today = today_jst()
         year = today.year if month >= today.month else today.year + 1
         try:
             return date(year, month, day)
@@ -603,8 +639,9 @@ def find_matched(groups: dict, cfg: dict) -> dict:
     flt = cfg.get("facility_filter") or []
     allowlist = cfg.get("room_allowlist") or []
     matched = {}
+    today, end = search_bounds(cfg)
     for gkey, g in groups.items():
-        if not g["is_target"]:
+        if not g["is_target"] or not g["date"] or not today <= g["date"] <= end:
             continue
         if flt and not any(f in gkey for f in flt):
             continue
@@ -624,20 +661,38 @@ def find_matched(groups: dict, cfg: dict) -> dict:
 def load_state() -> dict:
     if STATE_PATH.exists():
         try:
-            return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+            state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+            if not isinstance(state, dict) or not isinstance(state.get("slots"), dict):
+                raise ValueError("slots が辞書ではありません")
+            for field in ("matched", "ever_matched"):
+                if not isinstance(state.get(field), list) or not all(isinstance(k, str) for k in state[field]):
+                    raise ValueError(f"{field} がキーのリストではありません")
+            return state
+        except (ValueError, OSError) as e:
+            raise RuntimeError(f"{STATE_PATH.name} を読めません。復旧するか --reset-state で再登録してください") from e
     return {}
 
 
-def save_state(raw_slots: dict, matched_keys: list, ever_matched: set):
-    STATE_PATH.write_text(
-        json.dumps({"updated": datetime.now().isoformat(),
+def save_state(raw_slots: dict, matched_keys: list, ever_matched: set, **metadata):
+    data = json.dumps({"version": STATE_VERSION,
+                    "updated": now_jst().isoformat(),
                     "slots": raw_slots,
                     "matched": sorted(matched_keys),
-                    "ever_matched": sorted(ever_matched)},
-                   ensure_ascii=False, indent=1),
-        encoding="utf-8")
+                    "ever_matched": sorted(ever_matched), **metadata},
+                   ensure_ascii=False, indent=1) + "\n"
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=STATE_PATH.parent,
+                                         prefix=STATE_PATH.name + ".", suffix=".tmp", delete=False) as f:
+            temp_path = Path(f.name)
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, STATE_PATH)
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
 
 
 def format_group_line(gkey: str, g: dict, reopened: bool) -> str:
@@ -659,37 +714,57 @@ def format_group_line(gkey: str, g: dict, reopened: bool) -> str:
     return f"・**{day}** {g['room']}（{NOTIFY_LABEL}）{extra}{tag}"
 
 
-def notify_discord(webhook_url: str, items: list, dry_run: bool):
-    lines = [format_group_line(k, g, r) for k, g, r in items]
-    chunks, buf = [], ""
-    for line in lines:
-        if len(buf) + len(line) > 1800:
-            chunks.append(buf)
-            buf = ""
-        buf += line + "\n"
-    if buf:
-        chunks.append(buf)
-    for i, chunk in enumerate(chunks):
+def post_discord(webhook_url, payload, dry_run):
+    if dry_run:
+        print("[DRY-RUN] Discordへ送信予定の内容:")
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    if not webhook_url:
+        raise RuntimeError("DISCORD_WEBHOOK_URL が未設定です（状態は送信済みにしません）")
+    try:
+        response = requests.post(webhook_url, params={"wait": "true"}, json=payload, timeout=15)
+    except requests.RequestException as e:
+        # RequestException の本文にWebhookのトークンを含むURLが出ることがある。
+        raise RuntimeError("Discord通知の通信に失敗しました") from None
+    if response.status_code >= 300:
+        raise RuntimeError(f"Discord通知失敗: HTTP {response.status_code}")
+    print("[INFO] Discordへ通知しました")
+
+
+def send_lines(webhook_url, rows, title, color, dry_run, mention="", on_sent=None):
+    chunks, keys, lines, size = [], [], [], 0
+    for key, line in rows:
+        if lines and size + len(line) + 1 > 1800:
+            chunks.append((keys, lines))
+            keys, lines, size = [], [], 0
+        keys.append(key)
+        lines.append(line)
+        size += len(line) + 1
+    if lines:
+        chunks.append((keys, lines))
+    for i, (keys, lines) in enumerate(chunks):
+        ping = mention if i == 0 and mention in ("@here", "@everyone") else ""
         payload = {
-            "content": "@here" if not dry_run else "",
+            "content": ping,
+            "allowed_mentions": {"parse": ["everyone"] if ping else []},
             "embeds": [{
-                "title": f"🎉 土日祝 {NOTIFY_LABEL}の連続空きが出ました"
-                         + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""),
-                "description": chunk + f"\n[予約システムを開く]({BASE_URL})",
-                "color": 0x2ECC71,
-                "footer": {"text": datetime.now().strftime("%Y-%m-%d %H:%M")},
-            }]
+                "title": title + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""),
+                "description": "\n".join(lines) + f"\n\n[予約システムを開く]({BASE_URL})",
+                "color": color,
+                "footer": {"text": now_jst().strftime("%Y-%m-%d %H:%M JST")},
+            }],
         }
-        if dry_run:
-            print("[DRY-RUN] Discordへ送信予定の内容:")
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-        else:
-            r = requests.post(webhook_url, json=payload, timeout=15)
-            if r.status_code >= 300:
-                print(f"[ERROR] Discord通知失敗: {r.status_code} {r.text}")
-            else:
-                print("[INFO] Discordへ通知しました")
-        time.sleep(1)
+        post_discord(webhook_url, payload, dry_run)
+        if on_sent and not dry_run:
+            on_sent(keys)
+        if not dry_run and i + 1 < len(chunks):
+            time.sleep(1)
+
+
+def notify_discord(webhook_url: str, items: list, dry_run: bool, mention="", on_sent=None):
+    send_lines(webhook_url, [(k, format_group_line(k, g, r)) for k, g, r in items],
+               f"🎉 土日祝 {NOTIFY_LABEL}の連続空きが出ました", 0x2ECC71,
+               dry_run, mention, on_sent)
 
 
 def format_slot_key(k: str) -> str:
@@ -738,23 +813,11 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool,
                 f"[予約システムを開く]({BASE_URL})"
             ),
             "color": 0x3498DB,
-            "footer": {"text": datetime.now().strftime("%Y-%m-%d %H:%M")},
+            "footer": {"text": now_jst().strftime("%Y-%m-%d %H:%M JST")},
         }]
     }
-    if dry_run:
-        print("[DRY-RUN] テスト通知内容:")
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-    url = cfg.get("discord_webhook_url", "")
-    if not url:
-        print("[ERROR] discord_webhook_url が未設定です。GitHub Actionsの場合はSecretsの"
-              " DISCORD_WEBHOOK_URL を確認してください。")
-        sys.exit(1)
-    r = requests.post(url, json=payload, timeout=15)
-    if r.status_code >= 300:
-        print(f"[ERROR] Discord通知失敗: {r.status_code} {r.text}")
-        sys.exit(1)
-    print("[INFO] テスト通知をDiscordへ送信しました")
+    payload["allowed_mentions"] = {"parse": []}
+    post_discord(cfg.get("discord_webhook_url", ""), payload, dry_run)
 
 
 def format_lost_key(gkey: str) -> str:
@@ -768,36 +831,10 @@ def format_lost_key(gkey: str) -> str:
     return f"・{gkey}"
 
 
-def notify_lost(webhook_url: str, keys: list, dry_run: bool):
-    lines = [format_lost_key(k) for k in keys]
-    chunks, buf = [], ""
-    for line in lines:
-        if len(buf) + len(line) > 1800:
-            chunks.append(buf)
-            buf = ""
-        buf += line + "\n"
-    if buf:
-        chunks.append(buf)
-    for i, chunk in enumerate(chunks):
-        payload = {
-            "embeds": [{
-                "title": f"📕 {NOTIFY_LABEL}の連続空きが埋まりました"
-                         + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""),
-                "description": chunk + f"\n[予約システムを開く]({BASE_URL})",
-                "color": 0xE74C3C,
-                "footer": {"text": datetime.now().strftime("%Y-%m-%d %H:%M")},
-            }]
-        }
-        if dry_run:
-            print("[DRY-RUN] 埋まり通知内容:")
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-        else:
-            r = requests.post(webhook_url, json=payload, timeout=15)
-            if r.status_code >= 300:
-                print(f"[ERROR] Discord通知失敗: {r.status_code} {r.text}")
-            else:
-                print("[INFO] 埋まり通知をDiscordへ送信しました")
-        time.sleep(1)
+def notify_lost(webhook_url: str, keys: list, dry_run: bool, on_sent=None):
+    send_lines(webhook_url, [(k, format_lost_key(k)) for k in keys],
+               f"📕 {NOTIFY_LABEL}の連続空きが埋まりました", 0xE74C3C,
+               dry_run, on_sent=on_sent)
 
 
 # ---------------------------------------------------------------- main
@@ -814,63 +851,154 @@ def in_failed_range(iso: str, failed_ranges: list) -> bool:
     return False
 
 
+def search_bounds(cfg):
+    today = today_jst()
+    if cfg.get("horizon_days"):
+        end = today + timedelta(days=int(cfg["horizon_days"]) - 1)
+    else:
+        end = horizon_end_date(today, int(cfg.get("horizon_months", 3)))
+    return today, end
+
+
+def criteria_hash(cfg):
+    fields = ("base_url", "category_value", "bname_values", "include_mansion_in_room",
+              "required_slots", "slot_windows", "facility_filter", "room_allowlist",
+              "targets", "horizon_days", "horizon_months")
+    criteria = {k: cfg.get(k) for k in fields}
+    return hashlib.sha256(json.dumps(criteria, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
+                     explicit_status=False, annotate=None):
+    """3種類の監視に共通の差分処理。失敗箇所は未知として前回判定を保つ。"""
+    reset = getattr(args, "reset_state", False)
+    state = {} if reset else load_state()
+    today, end = search_bounds(cfg)
+
+    def in_scope(key):
+        d = parse_date_from_text(key.split("|")[-1])
+        return d is not None and today <= d <= end
+
+    def failed(key):
+        return (key.split("|")[0] in failed_rooms
+                or in_failed_range(key.split("|")[-1], failed_ranges))
+
+    # 失敗箇所の新旧スロットを混ぜて、実在しない連続空きを組み立てない。
+    fresh = {k: v for k, v in raw.items() if in_scope(k) and not failed(k)}
+    if not fresh and (failed_ranges or failed_rooms):
+        print("[ERROR] 比較できる取得結果がありません。状態を更新しません")
+        return False
+    groups = build_groups(fresh)
+    matched = find_matched(groups, cfg)
+    if annotate:
+        annotate(matched, cfg)
+    current = set(matched)
+    fingerprint = criteria_hash(cfg)
+    baseline = (reset or state.get("version") != STATE_VERSION
+                or state.get("criteria_hash") != fingerprint)
+    max_age = float(cfg.get("baseline_after_hours", 72))
+    if state.get("updated") and max_age > 0:
+        updated = datetime.fromisoformat(state["updated"])
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=JST)
+        baseline |= now_jst() - updated > timedelta(hours=max_age)
+    previous = {k for k in state.get("matched", []) if in_scope(k)}
+    ever = {k for k in state.get("ever_matched", []) if in_scope(k)}
+    raw_saved = dict(fresh)
+    raw_saved.update({k: v for k, v in state.get("slots", {}).items() if in_scope(k) and failed(k)})
+
+    failed_dates = { (date.fromisoformat(start) + timedelta(days=i)).isoformat()
+                     for start, days in failed_ranges for i in range(days)
+                     if today <= date.fromisoformat(start) + timedelta(days=i) <= end }
+    pending = state.get("baseline_pending", {})
+    pending_dates = set(pending.get("dates", []))
+    pending_rooms = set(pending.get("rooms", []))
+
+    def newly_baselined(key):
+        return key.split("|")[-1] in pending_dates or key.split("|")[0] in pending_rooms
+
+    counts = {}
+    if baseline:
+        accepted = set(current)
+        pending_dates, pending_rooms = failed_dates, set(failed_rooms)
+        print(f"[INFO] 初回・旧形式・条件変更・長期停止後のため、{len(current)}件を通知せず基準登録します")
+    else:
+        accepted = set(previous)
+        # 初回に取得できなかった範囲は、最初に取得できた回を基準にする。
+        accepted.update(k for k in current if newly_baselined(k))
+        pending_dates &= failed_dates
+        pending_rooms &= set(failed_rooms)
+
+    def checkpoint():
+        if not args.dry_run:
+            save_state(raw_saved, list(accepted), ever, criteria_hash=fingerprint,
+                       missing_counts=counts,
+                       baseline_pending={"dates": sorted(pending_dates), "rooms": sorted(pending_rooms)})
+
+    forced = args.notify_all
+    if baseline and forced:
+        accepted = set()
+    targets = current if forced else (set() if baseline else current - accepted)
+    lost = []
+    if not baseline:
+        confirmations = max(1, int(cfg.get("closed_confirmations", 2)))
+        for key in previous - current:
+            if failed(key):
+                continue
+            if explicit_status:
+                # 川崎は空き以外も取得する。欠落だけを満室と断定しない。
+                slots = groups.get(key, {}).get("slots", {})
+                if not any(slots.get(slot) in {"full", "closed", "partially", "maintenance", "processing"}
+                           for slot in cfg["required_slots"]):
+                    continue
+            count = int(state.get("missing_counts", {}).get(key, 0)) + 1
+            counts[key] = count
+            if count >= confirmations:
+                lost.append(key)
+        if not cfg.get("notify_filled", False) or forced:
+            accepted.difference_update(lost)
+            for k in lost:
+                counts.pop(k, None)
+            lost = []
+    ever.update(accepted)
+    # 送信前の保存には未送信の新規キーを入れない。
+    checkpoint()
+
+    def opened_sent(keys):
+        accepted.update(keys)
+        ever.update(keys)
+        checkpoint()
+
+    def closed_sent(keys):
+        accepted.difference_update(keys)
+        for k in keys:
+            counts.pop(k, None)
+        checkpoint()
+
+    ordered = sorted(targets, key=lambda k: (matched[k]["date"], k))
+    print(f"[INFO] 現在の連続空き {len(current)}件 / 新規通知 {len(ordered)}件 / 満室通知 {len(lost)}件")
+    try:
+        if ordered:
+            notify_discord(cfg.get("discord_webhook_url", ""),
+                           [(k, matched[k], k in ever) for k in ordered], args.dry_run,
+                           mention=cfg.get("discord_mention", ""), on_sent=opened_sent)
+        if lost:
+            notify_lost(cfg.get("discord_webhook_url", ""), sorted(lost, key=lambda k: (k.split("|")[-1], k)),
+                        args.dry_run, on_sent=closed_sent)
+    except RuntimeError as e:
+        print(f"[ERROR] {e}")
+        return False
+    if args.dry_run:
+        print("[DRY-RUN] 状態ファイルは変更していません")
+    return True
+
+
 def run_once(cfg: dict, args) -> bool:
     raw, ok, failed_ranges = fetch_availability(cfg, debug=args.debug)
-    if not raw and failed_ranges:
-        print("[ERROR] 空き状況を1件も取得できませんでした。次回に再試行します。")
+    if not ok and not failed_ranges:
+        print("[ERROR] 取得の完了を確認できません。状態を更新しません")
         return False
-
-    state0 = load_state()
-    if failed_ranges and state0.get("slots"):
-        carried = 0
-        for k, st in state0["slots"].items():
-            if in_failed_range(k.split("|")[-1], failed_ranges):
-                if k not in raw:
-                    raw[k] = st
-                    carried += 1
-        print(f"[INFO] 取得失敗期間のコマ {carried} 件を前回状態から引き継ぎました")
-
-    groups = build_groups(raw)
-    matched = find_matched(groups, cfg)
-    n_target = sum(1 for g in groups.values() if g["is_target"])
-    print(f"[INFO] 土日祝のコマグループ {n_target} 件中、条件成立 {len(matched)} 件")
-
-    state = load_state()
-    prev_matched = set(state.get("matched", []))
-    ever_matched = set(state.get("ever_matched", []))
-    first_run = "slots" not in state
-
-    if args.notify_all:
-        targets = sorted(matched.keys())
-    elif first_run:
-        print("[INFO] 初回実行のため状態を保存しました。次回以降、条件成立の変化を通知します。")
-        targets = []
-    else:
-        targets = sorted(set(matched.keys()) - prev_matched)
-
-    if targets:
-        targets = sorted(targets, key=lambda k: (matched[k]["date"] or date.max, k))
-        items = [(k, matched[k], k in ever_matched) for k in targets]
-        print(f"[INFO] 新たに条件成立 {len(targets)} 件を検出")
-        notify_discord(cfg.get("discord_webhook_url", ""), items, dry_run=args.dry_run)
-    else:
-        print("[INFO] 新たな条件成立はありません")
-
-    # 前回成立していたのに今回消えた＝予約が入って埋まった（未来の日付のみ対象）
-    if not first_run and not args.notify_all and cfg.get("notify_filled", True):
-        lost = []
-        for k in sorted(prev_matched - set(matched.keys())):
-            d = parse_date_from_text(k.split("|")[-1])
-            if d and d >= date.today():
-                lost.append(k)
-        if lost:
-            lost = sorted(lost, key=lambda k: k.split("|")[-1])
-            print(f"[INFO] 埋まった連続空き {len(lost)} 件を検出")
-            notify_lost(cfg.get("discord_webhook_url", ""), lost, dry_run=args.dry_run)
-
-    ever_matched |= set(matched.keys())
-    save_state(raw, list(matched.keys()), ever_matched)
-    return True
+    return process_snapshot(cfg, args, raw, failed_ranges=failed_ranges)
 
 
 def main():
@@ -878,12 +1006,15 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--notify-all", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--reset-state", action="store_true", help="通知せず現在の状態を基準として再登録")
     ap.add_argument("--loop", action="store_true")
     ap.add_argument("--test", action="store_true",
                     help="取得結果の要約をテスト通知としてDiscordへ必ず送る")
     ap.add_argument("--config", default=str(CONFIG_PATH), help="設定ファイルのパス")
     ap.add_argument("--state", default=None, help="状態ファイルのパス")
     args = ap.parse_args()
+    if args.reset_state and (args.notify_all or args.test):
+        ap.error("--reset-state は --notify-all / --test と併用できません")
 
     cfg = load_config(args.config)
     # サイトごとの上書き
@@ -914,10 +1045,11 @@ def main():
     start_h, end_h = cfg["active_hours"]
     print(f"[INFO] 常駐モード開始: {cfg['check_interval_min']}分間隔 / 稼働 {start_h}時〜{end_h}時")
     while True:
-        now = datetime.now()
+        now = now_jst()
         if start_h <= now.hour < end_h:
             try:
-                run_once(cfg, args)
+                if run_once(cfg, args):
+                    args.reset_state = False
             except Exception as e:
                 print(f"[ERROR] チェック中に例外: {e}")
         else:

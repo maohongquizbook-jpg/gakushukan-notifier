@@ -19,7 +19,6 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-import yaml
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 import monitor as core
@@ -138,13 +137,33 @@ def on_room_list(page) -> bool:
         return False
 
 
+def collect_room_slots(page, cfg, horizon_end):
+    """途中で同じ日へ戻る・日付/必須区分が読めない場合は部屋単位で保留する。"""
+    pairs = {}
+    previous = None
+    for _ in range(160):
+        iso, states = parse_vacancy(page)
+        if not iso or (previous and iso <= previous):
+            raise ValueError("日付送りの完了を確認できません")
+        if iso > horizon_end:
+            return pairs
+        if not all(slot in states for slot in cfg["required_slots"]):
+            raise ValueError("必須時間帯の空き状況を解析できません")
+        previous = iso
+        for slot, status in states.items():
+            pairs[(iso, slot)] = status
+        if iso == horizon_end or not click_text(page, "翌日"):
+            return pairs
+        wait(page, 0.6)
+    raise ValueError("日付送りの上限に達しました")
+
+
 def fetch_availability(cfg: dict, debug: bool):
-    from datetime import timedelta
     all_slots = {}
     errors = []
     failed_rooms = set()
-    today = date.today()
-    horizon_end = (today + timedelta(days=int(cfg.get("horizon_days", 70)))).isoformat()
+    today, end = core.search_bounds(cfg)
+    horizon_end = end.isoformat()
     dumped_sample = False
 
     with sync_playwright() as p:
@@ -158,7 +177,8 @@ def fetch_availability(cfg: dict, debug: bool):
                 except Exception:
                     pass
             return browser.new_context(
-                locale="ja-JP", viewport={"width": 480, "height": 1400}).new_page()
+                locale="ja-JP", timezone_id="Asia/Tokyo",
+                viewport={"width": 480, "height": 1400}).new_page()
 
         page = fresh_page()
 
@@ -229,20 +249,7 @@ def fetch_availability(cfg: dict, debug: bool):
                         dumped_sample = True
 
                     # 土日祝フィルタ済みの1日表示を「翌日」で送りながら収集
-                    pairs = {}
-                    prev_iso = None
-                    for _ in range(80):
-                        iso, states = parse_vacancy(page)
-                        if not iso or iso == prev_iso:
-                            break
-                        prev_iso = iso
-                        for slot, state in states.items():
-                            pairs[(iso, slot)] = state
-                        if iso >= horizon_end:
-                            break
-                        if not click_text(page, "翌日"):
-                            break
-                        wait(page, 0.6)
+                    pairs = collect_room_slots(page, cfg, horizon_end)
 
                     if not pairs:
                         print(f"[WARN] {kan}/{rname}: 空き状況を解析できませんでした")
@@ -283,13 +290,14 @@ def apply_fees(matched: dict, cfg: dict):
     fee_map = {}
     for tgt in cfg["targets"]:
         for r in tgt["rooms"]:
-            fee_map[f"{tgt['kan']}・{r['name']}"] = r.get("fee")
+            fee_map[f"{tgt['kan']}・{r['name']}"] = r
     import unicodedata
     for g in matched.values():
         norm = unicodedata.normalize("NFKC", g["room"])
-        for name, fee in fee_map.items():
-            if unicodedata.normalize("NFKC", name) in norm and fee:
-                g["fee"] = fee
+        for name, room_cfg in fee_map.items():
+            if unicodedata.normalize("NFKC", name) == norm:
+                g["fee"] = room_cfg.get("fee")
+                g["capacity"] = room_cfg.get("capacity")
                 break
 
 
@@ -299,19 +307,20 @@ def main():
     ap.add_argument("--test", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--notify-all", action="store_true")
+    ap.add_argument("--reset-state", action="store_true", help="通知せず現在の状態を基準として再登録")
+    ap.add_argument("--config", default=str(BASE_DIR / "config_fureai.yaml"))
+    ap.add_argument("--state", default=None)
     args = ap.parse_args()
 
-    with open(BASE_DIR / "config_fureai.yaml", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    cfg.setdefault("required_slots", ["午後", "夜間"])
-    cfg.setdefault("facility_filter", [])
-    cfg.setdefault("notify_filled", True)
+    if args.reset_state and (args.notify_all or args.test):
+        ap.error("--reset-state は --notify-all / --test と併用できません")
+    cfg = core.load_config(args.config)
 
     # 共通エンジンのグローバルをふれあいネット用に設定
     core.SLOT_WINDOWS = {k: tuple(v) for k, v in cfg["slot_windows"].items()}
     core.TIME_SLOT_WORDS = tuple(sorted(core.SLOT_WINDOWS.keys(), key=len, reverse=True))
     core.NOTIFY_LABEL = cfg.get("notify_label", "午後＋夜間")
-    core.STATE_PATH = BASE_DIR / cfg.get("state_file", "state_fureai.json")
+    core.STATE_PATH = Path(args.state) if args.state else BASE_DIR / cfg.get("state_file", "state_fureai.json")
     core.BASE_URL = SP_URL
 
     raw, ok, errors, failed_rooms = fetch_availability(cfg, debug=args.debug or args.test)
@@ -323,56 +332,12 @@ def main():
                                     matched=matched, errors=errors)
         sys.exit(0)
 
-    if not raw and errors:
-        print("[ERROR] 空き状況を1件も取得できませんでした。次回に再試行します")
+    if not ok and not failed_rooms:
+        print("[ERROR] 取得の完了を確認できません。状態を更新しません")
         sys.exit(1)
-
-    state0 = core.load_state()
-    if failed_rooms and state0.get("slots"):
-        carried = 0
-        for k, st in state0["slots"].items():
-            if k.split("|")[0] in failed_rooms and k not in raw:
-                raw[k] = st
-                carried += 1
-        print(f"[INFO] 取得失敗した部屋のコマ {carried} 件を前回状態から引き継ぎました")
-
-    groups = core.build_groups(raw)
-    matched = core.find_matched(groups, cfg)
-    apply_fees(matched, cfg)
-    n_target = sum(1 for g in groups.values() if g["is_target"])
-    print(f"[INFO] 土日祝グループ {n_target} 件中、条件成立 {len(matched)} 件")
-
-    state = core.load_state()
-    prev_matched = set(state.get("matched", []))
-    ever = set(state.get("ever_matched", []))
-    first_run = "slots" not in state
-
-    if args.notify_all:
-        targets = sorted(matched.keys())
-    elif first_run:
-        print("[INFO] 初回実行。状態を保存しました")
-        targets = []
-    else:
-        targets = sorted(set(matched.keys()) - prev_matched)
-
-    if targets:
-        targets = sorted(targets, key=lambda k: (matched[k]["date"] or date.max, k))
-        items = [(k, matched[k], k in ever) for k in targets]
-        core.notify_discord(cfg.get("discord_webhook_url", ""), items, dry_run=args.dry_run)
-    else:
-        print("[INFO] 新たな条件成立はありません")
-
-    if not first_run and cfg.get("notify_filled", True) and not args.notify_all:
-        lost = []
-        for k in sorted(prev_matched - set(matched.keys())):
-            d = core.parse_date_from_text(k.split("|")[-1])
-            if d and d >= date.today():
-                lost.append(k)
-        if lost:
-            core.notify_lost(cfg.get("discord_webhook_url", ""), sorted(lost), dry_run=args.dry_run)
-
-    ever |= set(matched.keys())
-    core.save_state(raw, list(matched.keys()), ever)
+    success = core.process_snapshot(cfg, args, raw, failed_rooms=failed_rooms,
+                                    explicit_status=True, annotate=apply_fees)
+    sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":

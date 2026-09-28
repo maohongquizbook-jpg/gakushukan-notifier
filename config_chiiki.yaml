@@ -80,6 +80,13 @@ room_allowlist:
 # 公開範囲: 登録団体は利用月の2か月前の第1土曜受付 → 2か月先の月末まで
 horizon_months: 2
 
-notify_filled: true
+notify_filled: false
 check_interval_min: 30
 active_hours: [7, 23]
+
+# 通知量を抑える設定。必要な場合だけ @here に変更（分割通知でも最初の1通のみ）。
+discord_mention: ""
+# 一時的な表示欠落で満室→再空きにならないよう、2回の確認で空き終了を確定。
+closed_confirmations: 2
+# 初回・設定変更・72時間を超える停止後は、現在の空きを通知せず基準登録。
+baseline_after_hours: 72
