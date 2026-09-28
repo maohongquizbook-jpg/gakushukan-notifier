@@ -16,6 +16,7 @@ import argparse
 import re
 import sys
 import time
+import unicodedata
 from datetime import date, datetime
 from pathlib import Path
 
@@ -27,6 +28,128 @@ BASE_DIR = Path(__file__).parent
 SP_URL = "https://www.fureai-net.city.kawasaki.jp/sp/"
 MARK_AVAILABLE = ("空き", "○", "◯", "〇")
 MARK_PARTIAL = ("一部",)
+LIST_TIMEOUT_MS = 20000
+MAX_LIST_PAGES = 30
+
+# jQuery Mobile が残す非表示の旧画面を操作・解析しない。
+_DOM_SETUP = r"""
+    const norm = s => (s || '').normalize('NFKC').replace(/[\s\u200b]+/g, '');
+    const pages = Array.from(document.querySelectorAll('[data-role="page"]'));
+    const root = document.querySelector('.ui-page-active')
+        || (pages.length === 1 ? pages[0] : pages.length === 0 ? document.body : null);
+    const visible = e => {
+        const style = getComputedStyle(e);
+        return e.getClientRects().length > 0 && style.display !== 'none'
+            && style.visibility !== 'hidden' && !e.closest('[hidden], [aria-hidden="true"]')
+            && !e.disabled && e.getAttribute('aria-disabled') !== 'true'
+            && !e.classList.contains('ui-disabled');
+    };
+    const label = e => (e.innerText || e.value || e.textContent || '').trim();
+    const links = root ? Array.from(root.querySelectorAll('a, input[type=submit], button'))
+        .filter(visible) : [];
+"""
+
+_LIST_VIEW_JS = "() => {" + _DOM_SETUP + r"""
+    const heading = root && root.querySelector('.title');
+    const title = heading ? label(heading) : document.title;
+    const text = root ? root.innerText : '';
+    const kind = title.includes('館選択') ? '館選択'
+        : title.includes('施設選択') ? '施設選択' : '';
+    const choices = root ? Array.from(root.querySelectorAll('ul[data-role="listview"] a'))
+        .filter(visible).map(label).filter(Boolean) : [];
+    const normalized = norm(text);
+    const range = normalized.match(/(\d+)[~〜～-](\d+)件を表示/);
+    const total = normalized.match(/(\d+)件の候補/);
+    const expected = range ? Number(range[2]) - Number(range[1]) + 1 : null;
+    const complete = expected !== null ? expected > 0 && choices.length === expected
+        : total && Number(total[1]) === 0;
+    const ready = !!(root && kind && document.readyState !== 'loading'
+        && !document.documentElement.classList.contains('ui-mobile-rendering') && complete);
+    return {kind, ready, labels: choices,
+        signature: JSON.stringify([kind, range && range[0], choices.map(norm)]),
+        next: links.some(e => norm(label(e)) === '次へ'),
+        previous: links.some(e => norm(label(e)) === '前へ')};
+}"""
+
+
+def normalize_label(text):
+    return re.sub(r"[\s\u200b]+", "", unicodedata.normalize("NFKC", text))
+
+
+def wait_for_list(page, kind, previous=None):
+    """見出しだけでなく、表示件数分のリンクとページ送りの完了を待つ。"""
+    script = "(p) => { const v = (" + _LIST_VIEW_JS + ")(); " + (
+        "return v.ready && v.kind === p.kind && v.signature !== p.previous ? v : false; }"
+    )
+    try:
+        handle = page.wait_for_function(
+            script, arg={"kind": kind, "previous": previous}, timeout=LIST_TIMEOUT_MS)
+        try:
+            return handle.json_value()
+        finally:
+            handle.dispose()
+    except PWTimeout as e:
+        raise ValueError(f"{kind}一覧の読み込み・ページ切替が完了しません") from e
+
+
+def first_list_page(page, kind):
+    view = wait_for_list(page, kind)
+    seen = set()
+    for _ in range(MAX_LIST_PAGES):
+        if view["signature"] in seen:
+            raise ValueError(f"{kind}一覧の前ページ送りが循環しています")
+        seen.add(view["signature"])
+        if not view["previous"]:
+            return view
+        if not click_text(page, "前へ", exact=True):
+            raise ValueError(f"{kind}一覧の先頭へ戻れません")
+        view = wait_for_list(page, kind, previous=view["signature"])
+    raise ValueError(f"{kind}一覧のページ数上限に達しました")
+
+
+def select_list_item(page, text, kind, *, allow_partial=False, aliases=()):
+    """館・部屋を全ページから探す。完全一致を優先し、曖昧な候補は選ばない。"""
+    wanted = {normalize_label(t) for t in (text, *aliases)}
+    view = first_list_page(page, kind)
+    seen, labels, partial = set(), [], []
+    for page_number in range(MAX_LIST_PAGES):
+        if view["signature"] in seen:
+            raise ValueError(f"{kind}一覧の次ページ送りが循環しています")
+        seen.add(view["signature"])
+        labels.extend(view["labels"])
+        exact = [s for s in view["labels"] if normalize_label(s) in wanted]
+        if len(exact) > 1:
+            raise ValueError(f"「{text}」の候補が複数あります: {exact}")
+        if exact:
+            if not click_text(page, exact[0], exact=True):
+                raise ValueError(f"「{text}」の選択に失敗しました")
+            return
+        if allow_partial:
+            partial.extend((page_number, s) for s in view["labels"]
+                           if any(t in normalize_label(s) for t in wanted))
+        if not view["next"]:
+            break
+        print(f"[INFO] {kind}一覧: 「{text}」を次ページで探します")
+        if not click_text(page, "次へ", exact=True):
+            raise ValueError(f"{kind}一覧の次ページへ進めません")
+        view = wait_for_list(page, kind, previous=view["signature"])
+    else:
+        raise ValueError(f"{kind}一覧のページ数上限に達しました")
+
+    # 設定中の「老人福祉」等の略称は、全ページで一意な館だけを許可。
+    if allow_partial and len(partial) == 1:
+        number, label = partial[0]
+        view = first_list_page(page, kind)
+        for _ in range(number):
+            if not click_text(page, "次へ", exact=True):
+                raise ValueError(f"{kind}一覧の候補ページへ戻れません")
+            view = wait_for_list(page, kind, previous=view["signature"])
+        if label in view["labels"] and click_text(page, label, exact=True):
+            return
+        raise ValueError(f"「{text}」の選択に失敗しました")
+    if len(partial) > 1:
+        raise ValueError(f"「{text}」に一致する館が複数あります: {[s for _, s in partial]}")
+    raise ValueError(f"「{text}」が一覧にありません。表示された候補: {', '.join(labels)}")
 
 
 def dump(page, tag, screenshot=True):
@@ -68,17 +191,19 @@ def safe_eval(page, script, arg=None):
     raise last
 
 
-def click_text(page, text) -> bool:
+def click_text(page, text, *, exact=False) -> bool:
     ok = safe_eval(page,
-        """(t) => {
-            const links = Array.from(document.querySelectorAll('a, input[type=submit], button'));
-            const hit = links.find(e => (e.innerText || e.value || '').trim() === t)
-                     || links.find(e => (e.innerText || e.value || '').includes(t));
-            if (hit) { hit.click(); return true; }
+        "(p) => {" + _DOM_SETUP + r"""
+            if (document.readyState === 'loading'
+                || document.documentElement.classList.contains('ui-mobile-rendering')) return false;
+            const t = norm(p.text);
+            let hits = links.filter(e => norm(label(e)) === t);
+            if (!hits.length && !p.exact) hits = links.filter(e => norm(label(e)).includes(t));
+            if (hits.length === 1) { hits[0].click(); return true; }
             return false;
-        }""", text)
+        }""", {"text": text, "exact": exact})
     if not ok:
-        print(f"[WARN] 「{text}」が見つかりません")
+        print(f"[WARN] 「{text}」を一意に選択できません")
     return ok
 
 
@@ -86,7 +211,8 @@ def parse_vacancy(page):
     """施設空き検索結果(時間帯貸し)画面を解析する。1日分の表示:
     「… 2026年7月18日(土) 空き情報 午前 × 午後 × 夜間 ○ …」
     戻り値: (iso_date, {slot: state}) / 解析不能なら (None, {})"""
-    text = safe_eval(page, "() => document.body.innerText.replace(/\\s+/g, ' ')")
+    text = safe_eval(page, "() => {" + _DOM_SETUP
+                     + "return root ? root.innerText.replace(/\\s+/g, ' ') : ''; }")
     d = core.parse_date_from_text(text)
     if not d:
         return None, {}
@@ -121,18 +247,18 @@ def walk_to_room_list(page, ward: str, kan: str) -> bool:
         if not click_text(page, ward):
             return False
         wait(page)
-        if not click_text(page, kan):
-            return False
-        wait(page)
+        select_list_item(page, kan, "館選択", allow_partial=True)
+        wait_for_list(page, "施設選択")
         return True
     except Exception as e:
-        print(f"[WARN] {ward}/{kan} への移動でエラー: {type(e).__name__}")
+        print(f"[WARN] {ward}/{kan} への移動でエラー: {type(e).__name__}: {e}")
         return False
 
 
 def on_room_list(page) -> bool:
     try:
-        return "施設選択" in (page.title() or "")
+        view = safe_eval(page, _LIST_VIEW_JS)
+        return view["kind"] == "施設選択" and view["ready"]
     except Exception:
         return False
 
@@ -147,8 +273,10 @@ def collect_room_slots(page, cfg, horizon_end):
             raise ValueError("日付送りの完了を確認できません")
         if iso > horizon_end:
             return pairs
-        if not all(slot in states for slot in cfg["required_slots"]):
-            raise ValueError("必須時間帯の空き状況を解析できません")
+        missing = [slot for slot in cfg["required_slots"] if slot not in states]
+        if missing:
+            raise ValueError(f"{iso}: 必須時間帯 {', '.join(missing)} を解析できません"
+                             f"（読み取れた時間帯: {', '.join(states) or 'なし'}）")
         previous = iso
         for slot, status in states.items():
             pairs[(iso, slot)] = status
@@ -156,6 +284,45 @@ def collect_room_slots(page, cfg, horizon_end):
             return pairs
         wait(page, 0.6)
     raise ValueError("日付送りの上限に達しました")
+
+
+def open_room(page, ward, kan, room_cfg):
+    if not on_room_list(page) and not walk_to_room_list(page, ward, kan):
+        raise ValueError("部屋一覧に復帰できません")
+    select_list_item(page, room_cfg["name"], "施設選択",
+                     aliases=room_cfg.get("aliases", ()))
+    # タイトルだけ先に現れる遷移途中では、フォームを操作しない。
+    page.wait_for_function("() => {" + _DOM_SETUP + """
+        const f = root && root.querySelector('form');
+        return f && ['selectYear', 'selectMonth', 'selectDay'].every(n => f.elements.namedItem(n));
+    }""", timeout=LIST_TIMEOUT_MS)
+
+
+def start_search(page, today):
+    safe_eval(page, "(p) => {" + _DOM_SETUP + """
+        const f = root && root.querySelector('form');
+        if (!f) throw new Error('期間設定フォームがありません');
+        f.elements.namedItem('selectYear').value = String(p.y);
+        f.elements.namedItem('selectMonth').value = String(p.m).padStart(2, '0');
+        f.elements.namedItem('selectDay').value = String(p.d).padStart(2, '0');
+        f.querySelectorAll('input[name=srchSelectWeek]').forEach(cb => {
+            cb.checked = ['6', '7', '8'].includes(cb.value);
+        });
+    }""", {"y": today.year, "m": today.month, "d": today.day})
+    if not click_text(page, "検索開始", exact=True):
+        raise ValueError("検索開始ボタンを選択できません")
+    wait(page, 1.5)
+
+
+def return_to_room_list(page):
+    for _ in range(3):
+        view = safe_eval(page, _LIST_VIEW_JS)
+        if view["kind"] == "施設選択":
+            wait_for_list(page, "施設選択")
+            return
+        if not click_text(page, "もどる", exact=True):
+            return  # 次の部屋ではトップから復帰する。
+        wait(page, 0.6)
 
 
 def fetch_availability(cfg: dict, debug: bool):
@@ -170,7 +337,7 @@ def fetch_availability(cfg: dict, debug: bool):
         browser = p.chromium.launch(headless=True)
 
         def fresh_page(old=None):
-            """セッション(Cookie)を作り直した新しいページを返す"""
+            """失敗したセッションを閉じ、新しいセッションで1回だけ再試行する。"""
             if old is not None:
                 try:
                     old.context.close()
@@ -181,108 +348,68 @@ def fetch_availability(cfg: dict, debug: bool):
                 viewport={"width": 480, "height": 1400}).new_page()
 
         page = fresh_page()
-
-        for tgt in cfg["targets"]:
-            ward, kan = tgt["ward"], tgt["kan"]
-            print(f"[INFO] === {ward} / {kan} ===")
-            reached = walk_to_room_list(page, ward, kan)
-            if not reached:
-                # セッション破損（有効期限切れ等）の可能性 → 新セッションで再試行
-                print(f"[INFO] {kan}: 新しいセッションで再試行します")
-                page = fresh_page(page)
-                time.sleep(3)
+        try:
+            for tgt in cfg["targets"]:
+                ward, kan = tgt["ward"], tgt["kan"]
+                print(f"[INFO] === {ward} / {kan} ===")
                 reached = walk_to_room_list(page, ward, kan)
-            if not reached:
-                errors.append(f"{ward}/{kan}: 部屋一覧に到達できません")
-                failed_rooms |= {f"{kan}・{r['name']}" for r in tgt["rooms"]}
-                dump(page, f"kanfail_{kan}", screenshot=False)
-                continue
+                if not reached:
+                    print(f"[INFO] {kan}: 新しいセッションで再試行します")
+                    page = fresh_page(page)
+                    time.sleep(3)
+                    reached = walk_to_room_list(page, ward, kan)
+                if not reached:
+                    errors.append(f"{ward}/{kan}: 部屋一覧に到達できません")
+                    failed_rooms.update(f"{kan}・{r['name']}" for r in tgt["rooms"])
+                    dump(page, f"kanfail_{kan}", screenshot=False)
+                    continue
 
-            for room_cfg in tgt["rooms"]:
-                rname = room_cfg["name"]
-                try:
-                    # 部屋一覧に立っていなければ復帰（ダメなら新セッションで再試行）
-                    if not on_room_list(page) and not walk_to_room_list(page, ward, kan):
-                        page = fresh_page(page)
-                        time.sleep(3)
-                        if not walk_to_room_list(page, ward, kan):
-                            errors.append(f"{kan}/{rname}: 部屋一覧に復帰できません")
-                            failed_rooms.add(f"{kan}・{rname}")
-                            continue
-                    # 部屋リンクを探す（「次へ」ページも探索）
-                    found = False
-                    for _ in range(5):
-                        if click_text(page, rname):
-                            found = True
+                for room_cfg in tgt["rooms"]:
+                    rname = room_cfg["name"]
+                    room_label = f"{kan}・{rname}"
+                    pairs = None
+                    for attempt in range(2):
+                        try:
+                            open_room(page, ward, kan, room_cfg)
+                            start_search(page, today)
+                            if debug and not dumped_sample:
+                                dump(page, f"result_sample_{kan}_{rname}")
+                                dumped_sample = True
+                            # 途中まで取れた部屋も、失敗時は一切採用しない。
+                            pairs = collect_room_slots(page, cfg, horizon_end)
+                            if not pairs:
+                                raise ValueError("空き状況を解析できません")
                             break
-                        if not click_text(page, "次へ"):
-                            break
-                        wait(page, 0.8)
-                    if not found:
-                        print(f"[WARN] 部屋「{rname}」が見つかりません（{kan}）")
-                        errors.append(f"{kan}/{rname}: 部屋が見つかりません")
-                        failed_rooms.add(f"{kan}・{rname}")
-                        dump(page, f"roomfail_{kan}_{rname}", screenshot=False)
-                        walk_to_room_list(page, ward, kan)
+                        except Exception as e:
+                            pairs = None
+                            print(f"[WARN] {kan}/{rname}: {type(e).__name__}: {e}")
+                            if attempt == 0:
+                                print(f"[INFO] {kan}/{rname}: 新しいセッションで再試行します")
+                                page = fresh_page(page)
+                                time.sleep(3)
+                            else:
+                                errors.append(f"{kan}/{rname}: {type(e).__name__}: {e}")
+                                failed_rooms.add(room_label)
+                                dump(page, f"roomfail_{kan}_{rname}", screenshot=False)
+                    if pairs is None:
                         continue
-                    wait(page)
-
-                    # 期間設定: 今日＋土日祝チェック → 検索開始
-                    safe_eval(page,
-                        """(p) => {
-                            const f = document.FORM1 || document.forms[0];
-                            if (!f) return;
-                            if (f.selectYear) f.selectYear.value = String(p.y);
-                            if (f.selectMonth) f.selectMonth.value = String(p.m).padStart(2, '0');
-                            if (f.selectDay) f.selectDay.value = String(p.d).padStart(2, '0');
-                            document.querySelectorAll('input[name=srchSelectWeek]').forEach(cb => {
-                                cb.checked = ['6', '7', '8'].includes(cb.value);
-                            });
-                        }""",
-                        {"y": today.year, "m": today.month, "d": today.day})
-                    if not click_text(page, "検索開始"):
-                        safe_eval(page, "() => (document.FORM1 || document.forms[0]).submit()")
-                    wait(page, 1.5)
-
-                    if debug and not dumped_sample:
-                        dump(page, f"result_sample_{kan}_{rname}")
-                        dumped_sample = True
-
-                    # 土日祝フィルタ済みの1日表示を「翌日」で送りながら収集
-                    pairs = collect_room_slots(page, cfg, horizon_end)
-
-                    if not pairs:
-                        print(f"[WARN] {kan}/{rname}: 空き状況を解析できませんでした")
-                        errors.append(f"{kan}/{rname}: 空き状況を解析できず")
-                        failed_rooms.add(f"{kan}・{rname}")
-                        dump(page, f"parsefail_{kan}_{rname}", screenshot=False)
-                    else:
-                        n = sum(1 for v in pairs.values() if v in core.AVAILABLE_STATES)
-                        print(f"[INFO] {kan}/{rname}: {len(pairs)}コマ（空き{n}）")
-                        room_label = f"{kan}・{rname}"
-                        for (iso, slot), state in pairs.items():
-                            all_slots[f"{room_label}|{slot}|{iso}"] = state
+                    n = sum(1 for v in pairs.values() if v in core.AVAILABLE_STATES)
+                    print(f"[INFO] {kan}/{rname}: {len(pairs)}コマ（空き{n}）")
+                    for (iso, slot), state in pairs.items():
+                        all_slots[f"{room_label}|{slot}|{iso}"] = state
                     time.sleep(0.8)
-
-                    # 部屋一覧へ戻る（もどる×2 → ダメなら再ウォーク）
-                    for _ in range(3):
-                        if on_room_list(page):
-                            break
-                        if not click_text(page, "もどる"):
-                            break
-                        wait(page, 0.6)
-                    if not on_room_list(page):
-                        walk_to_room_list(page, ward, kan)
-
-                except Exception as e:
-                    print(f"[ERROR] {kan}/{rname} でエラー: {type(e).__name__}: {e}")
-                    errors.append(f"{kan}/{rname}: 実行時エラー {type(e).__name__}")
-                    failed_rooms.add(f"{kan}・{rname}")
-                    walk_to_room_list(page, ward, kan)
-
-        browser.close()
-    ok = not errors
-    return all_slots, ok, errors, failed_rooms
+                    try:
+                        return_to_room_list(page)
+                    except Exception as e:
+                        # 収集済みのデータは有効。次の部屋でトップから復帰する。
+                        print(f"[WARN] {kan}: 部屋一覧へ戻れません: {e}")
+        finally:
+            browser.close()
+    total = sum(len(t["rooms"]) for t in cfg["targets"])
+    print(f"[INFO] 取得結果: 成功{total - len(failed_rooms)}/{total}室、保留{len(failed_rooms)}室")
+    for room in sorted(failed_rooms):
+        print(f"[WARN] 取得保留: {room}")
+    return all_slots, not errors, errors, failed_rooms
 
 
 def apply_fees(matched: dict, cfg: dict):
