@@ -1,92 +1,1422 @@
-# ===== 新宿区 地域センター 監視設定 =====
-# Discord Webhook URL（GitHub Actionsで使う場合は空のままにし、SecretsのDISCORD_WEBHOOK_CHIIKIに登録）
-discord_webhook_url: ""
-
-base_url: "https://www.shinjuku.eprs.jp/chiiki/web/"
-state_file: "state_chiiki.json"
-notify_label: "昼間＋夜間"
-
-# 「どこで」の選択肢をページから自動取得し、全センターを順に検索する
+# 地域センター：4枠合計6,000円以内、必須は午後2＋夜間1。2026-09-30利用条件再点検済み。
+discord_webhook_url: ''
+base_url: https://www.shinjuku.eprs.jp/chiiki/web/
+state_file: state_chiiki.json
+notify_label: 午後2＋夜間1
 bname_values: auto
-
-# 日付順の「館」列（センター名）を部屋名に含める（許可リスト照合に必要）
 include_mansion_in_room: true
-category_value: ""
-
-# 地域センターの時間区分（利用案内で確認済み）
+category_value: ''
 slot_windows:
-  午前:  [900, 1200]
-  午後1: [1300, 1500]
-  午後2: [1515, 1715]
-  夜間1: [1730, 1930]
-  夜間2: [1945, 2145]
-
-# 通知条件: 昼間＋夜間 = 午後1〜夜間2の4区分すべてが空き（13:00〜21:45連続）
+  午前:
+  - 900
+  - 1200
+  午後1:
+  - 1300
+  - 1500
+  午後2:
+  - 1515
+  - 1715
+  夜間1:
+  - 1730
+  - 1930
+  夜間2:
+  - 1945
+  - 2145
 required_slots:
-  - 午後1
-  - 午後2
-  - 夜間1
-  - 夜間2
-
-# 対象の部屋（定員11名以上 かつ 午後1+午後2+夜間1+夜間2の合計が5,000円以内・一般団体料金）
-# fee = 4区分合計の使用料（一般団体＝「その他一般団体料金」基準）。
-# 区公式の料金一覧PDF(令和8年7月版)から作成。PDFの表組みが複雑なため料金は目安です。
-# 登録団体として使う場合はこの半額程度になります。
-# keywords はすべて部屋名に含まれる場合に一致（全角半角は自動吸収）
-room_allowlist:
-  # --- 四谷 ---
-  - {keywords: [四谷, 目的利用], capacity: 15, fee: 3600}   # 和室(目的利用A/B) ※料金要確認
-  # --- 牛込箪笥 ---
-  - {keywords: [箪笥, なつめ], capacity: 12, fee: 3000}
-  - {keywords: [箪笥, つつじ], capacity: 25, fee: 4000}
-  # --- 榎町 ---
-  - {keywords: [榎, 大会議室], capacity: 21, fee: 4000}      # A/B両方対象
-  - {keywords: [榎, 小会議室], capacity: 12, fee: 2600}      # ※料金要確認
-  - {keywords: [榎, 軽音楽室], capacity: 18, fee: 3600}
-  - {keywords: [榎, 調理室], capacity: 15, fee: 4800}
-  - {keywords: [榎, ホールB], capacity: 32, fee: 4800}       # 葬儀優先枠あり
-  # --- 若松 ---
-  - {keywords: [若松, 第2集会室A], capacity: 24, fee: 4000}
-  - {keywords: [若松, 第2集会室B], capacity: 24, fee: 4400}
-  - {keywords: [若松, はなみずき], capacity: 20, fee: 4400}  # 和室
-  # --- 大久保 ---
-  - {keywords: [大久保, 会議室B], capacity: 30, fee: 3600}
-  - {keywords: [大久保, 会議室C], capacity: 24, fee: 3000}
-  # --- 戸塚 ---
-  - {keywords: [戸塚, 会議室2], capacity: 18, fee: 2600}
-  - {keywords: [戸塚, 会議室3], capacity: 12, fee: 2200}
-  - {keywords: [戸塚, 会議室4], capacity: 12, fee: 2200}
-  - {keywords: [戸塚, 音楽室], capacity: 20, fee: 4200}
-  - {keywords: [戸塚, 調理], capacity: 12, fee: 4400}        # 調理・手工芸室
-  - {keywords: [戸塚, 集会室2], capacity: 16, fee: 2800}     # 地下・葬儀優先枠あり
-  # --- 落合第一 ---
-  - {keywords: [落合第一, 第2集会室], capacity: 24, fee: 4800}
-  - {keywords: [落合第一, 和室控室], capacity: 12, fee: 2200} # 葬儀優先枠あり
-  - {keywords: [落合第一, ホールB], capacity: 24, fee: 4800}  # 葬儀優先枠あり
-  # --- 落合第二 ---
-  - {keywords: [落合第二, 大会議室A], capacity: 24, fee: 4600}
-  - {keywords: [落合第二, 大会議室B], capacity: 24, fee: 4800}
-  - {keywords: [落合第二, 小会議室], capacity: 18, fee: 4000}
-  - {keywords: [落合第二, 音楽室], capacity: 18, fee: 4000}
-  - {keywords: [落合第二, 和室], capacity: 30, fee: 5000}
-  - {keywords: [落合第二, 工芸美術室], capacity: 12, fee: 3600}
-  - {keywords: [落合第二, 調理室], capacity: 12, fee: 3600}
-  - {keywords: [落合第二, 茶室], capacity: 12, fee: 1800}
-  # --- 柏木 ---
-  - {keywords: [柏木, 会議室1B], capacity: 12, fee: 4000}
-  # --- 角筈 ---
-  - {keywords: [角筈, 会議室B], capacity: 24, fee: 4000}
-
-# 公開範囲: 登録団体は利用月の2か月前の第1土曜受付 → 2か月先の月末まで
+- 午後2
+- 夜間1
 horizon_months: 2
-
 notify_filled: false
 check_interval_min: 30
-active_hours: [7, 23]
-
-# 通知量を抑える設定。必要な場合だけ @here に変更（分割通知でも最初の1通のみ）。
-discord_mention: ""
-# 一時的な表示欠落で満室→再空きにならないよう、2回の確認で空き終了を確定。
+active_hours:
+- 7
+- 23
+discord_mention: ''
 closed_confirmations: 2
-# 初回・設定変更・72時間を超える停止後は、現在の空きを通知せず基準登録。
 baseline_after_hours: 72
+optional_slots:
+- 午後1
+- 夜間2
+budget_slots:
+- 午後1
+- 午後2
+- 夜間1
+- 夜間2
+max_total_fee: 6000
+room_catalog:
+- facility: 四谷地域センター
+  name: 音楽室（集会室1）
+  capacity: 30
+  slot_fees:
+    午前: 1800
+    午後1: 1800
+    午後2: 1800
+    夜間1: 2200
+    夜間2: 2200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 8000
+- facility: 四谷地域センター
+  name: 調理工作室
+  capacity: 30
+  slot_fees:
+    午前: 1700
+    午後1: 1700
+    午後2: 1700
+    夜間1: 2100
+    夜間2: 2100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7600
+- facility: 四谷地域センター
+  name: 集会室2
+  capacity: 25
+  slot_fees:
+    午前: 1300
+    午後1: 1300
+    午後2: 1300
+    夜間1: 1600
+    夜間2: 1600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5800
+  usage_note: 楽器演奏・合唱・演劇等は不可。小さな電子音の扱いは未確認。
+  sound_source: https://ycc.tokyo/pg49.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 四谷地域センター
+  name: 集会室3
+  capacity: 20
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5400
+  usage_note: 楽器演奏・合唱・演劇等は不可。小さな電子音の扱いは未確認。
+  sound_source: https://ycc.tokyo/pg49.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 四谷地域センター
+  name: 集会室4
+  capacity: 30
+  slot_fees:
+    午前: 1700
+    午後1: 1700
+    午後2: 1700
+    夜間1: 2100
+    夜間2: 2100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7600
+- facility: 四谷地域センター
+  name: 和室A
+  capacity: 15
+  slot_fees:
+    午前: 400
+    午後1: 400
+    午後2: 400
+    夜間1: 500
+    夜間2: 500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 表示は目的利用の室料。利用資格の確認が必要。
+  aliases:
+  - 和室（目的利用A）
+  conditional_reason: 登録団体の目的利用専用。一般団体は和室全体（4枠8,000円）となり予算超過。
+  fee: 1800
+  usage_note: 一般利用はA・B一体のみ。楽器にも種類・人数の制限。小さな電子音の扱いは未確認。
+  sound_source: https://ycc.tokyo/pg49.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用資格・料金の条件付き
+- facility: 四谷地域センター
+  name: 和室B
+  capacity: 15
+  slot_fees:
+    午前: 400
+    午後1: 400
+    午後2: 400
+    夜間1: 500
+    夜間2: 500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 表示は目的利用の室料。利用資格の確認が必要。
+  aliases:
+  - 和室（目的利用B）
+  conditional_reason: 登録団体の目的利用専用。一般団体は和室全体（4枠8,000円）となり予算超過。
+  fee: 1800
+  usage_note: 一般利用はA・B一体のみ。楽器にも種類・人数の制限。小さな電子音の扱いは未確認。
+  sound_source: https://ycc.tokyo/pg49.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用資格・料金の条件付き
+- facility: 四谷地域センター
+  name: 和室
+  capacity: 30
+  slot_fees:
+    午前: 1800
+    午後1: 1800
+    午後2: 1800
+    夜間1: 2200
+    夜間2: 2200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 8000
+- facility: 四谷地域センター
+  name: 茶室
+  capacity: 5
+  slot_fees:
+    午前: 600
+    午後1: 600
+    午後2: 600
+    夜間1: 700
+    夜間2: 700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 2600
+  blocked_reason: 公式案内で茶道専用。茶道以外の活動には利用できません。
+  restriction_origin: official_website
+  usage_note: 料金・定員条件だけでは候補にできない部屋です。
+  sound_source: https://ycc.tokyo/pg49.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 用途不適合
+- facility: 四谷地域センター
+  name: 多目的ホール
+  capacity: 100
+  slot_fees:
+    午前: 4900
+    午後1: 4900
+    午後2: 4900
+    夜間1: 6100
+    夜間2: 6100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=1
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 22000
+- facility: 牛込箪笥地域センター
+  name: バラA
+  capacity: 30
+  slot_fees:
+    午前: 1600
+    午後1: 1600
+    午後2: 1600
+    夜間1: 2000
+    夜間2: 2000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7200
+- facility: 牛込箪笥地域センター
+  name: バラB
+  capacity: 30
+  slot_fees:
+    午前: 1600
+    午後1: 1600
+    午後2: 1600
+    夜間1: 2000
+    夜間2: 2000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7200
+- facility: 牛込箪笥地域センター
+  name: トマト
+  capacity: 25
+  slot_fees:
+    午前: 1700
+    午後1: 1700
+    午後2: 1700
+    夜間1: 2100
+    夜間2: 2100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7600
+- facility: 牛込箪笥地域センター
+  name: なつめ
+  capacity: 12
+  slot_fees:
+    午前: 700
+    午後1: 700
+    午後2: 700
+    夜間1: 800
+    夜間2: 800
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 3000
+  usage_note: 防音設備なし。楽器や人数によって利用不可の場合あり。小さな電子音の扱いは未確認。
+  sound_source: https://www.ushigometansu.com/qa.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 牛込箪笥地域センター
+  name: つつじ
+  capacity: 25
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4000
+  usage_note: 防音設備なし。楽器や人数によって利用不可の場合あり。小さな電子音の扱いは未確認。
+  sound_source: https://www.ushigometansu.com/qa.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 牛込箪笥地域センター
+  name: コンドル
+  capacity: 100
+  slot_fees:
+    午前: 4000
+    午後1: 4000
+    午後2: 4000
+    夜間1: 5000
+    夜間2: 5000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 18000
+- facility: 牛込箪笥地域センター
+  name: 菊
+  capacity: 40
+  slot_fees:
+    午前: 2600
+    午後1: 2600
+    午後2: 2600
+    夜間1: 3200
+    夜間2: 3200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  fee: 11600
+- facility: 牛込箪笥地域センター
+  name: 百合
+  capacity: 40
+  slot_fees:
+    午前: 2600
+    午後1: 2600
+    午後2: 2600
+    夜間1: 3200
+    夜間2: 3200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  fee: 11600
+- facility: 牛込箪笥地域センター
+  name: 水仙
+  capacity: 10
+  slot_fees:
+    午前: 500
+    午後1: 500
+    午後2: 500
+    夜間1: 600
+    夜間2: 600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 防音設備なし。楽器や人数によって利用不可の場合あり。小さな電子音の扱いは未確認。
+  fee: 2200
+  sound_source: https://www.ushigometansu.com/qa.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 榎町地域センター
+  name: 多目的ホール
+  capacity: 120
+  slot_fees:
+    午前: 3700
+    午後1: 3700
+    午後2: 3700
+    夜間1: 4600
+    夜間2: 4600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 16600
+- facility: 榎町地域センター
+  name: 調理室
+  capacity: 15
+  slot_fees:
+    午前: 1100
+    午後1: 1100
+    午後2: 1100
+    夜間1: 1300
+    夜間2: 1300
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4800
+  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  sound_source: https://enoki-chiiki.tokyo/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 榎町地域センター
+  name: 大会議室A
+  capacity: 21
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4000
+  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  sound_source: https://enoki-chiiki.tokyo/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 榎町地域センター
+  name: 大会議室B
+  capacity: 21
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4000
+  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  sound_source: https://enoki-chiiki.tokyo/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 榎町地域センター
+  name: 工芸美術室
+  capacity: 24
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5400
+  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  sound_source: https://enoki-chiiki.tokyo/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 榎町地域センター
+  name: 軽音楽室
+  capacity: 18
+  slot_fees:
+    午前: 800
+    午後1: 800
+    午後2: 800
+    夜間1: 1000
+    夜間2: 1000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 3600
+  usage_note: 軽音楽室は一部楽器利用可。他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  sound_source: https://enoki-chiiki.tokyo/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 榎町地域センター
+  name: 和室
+  capacity: 30
+  slot_fees:
+    午前: 1400
+    午後1: 1400
+    午後2: 1400
+    夜間1: 1700
+    夜間2: 1700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 6200
+- facility: 榎町地域センター
+  name: 小会議室
+  capacity: 12
+  slot_fees:
+    午前: 600
+    午後1: 600
+    午後2: 600
+    夜間1: 700
+    夜間2: 700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 2600
+  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  sound_source: https://enoki-chiiki.tokyo/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 榎町地域センター
+  name: 地下ホールA
+  capacity: 54
+  slot_fees:
+    午前: 1700
+    午後1: 1700
+    午後2: 1700
+    夜間1: 2100
+    夜間2: 2100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - ホールA
+  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  fee: 7600
+- facility: 榎町地域センター
+  name: 地下ホールB
+  capacity: 32
+  slot_fees:
+    午前: 1100
+    午後1: 1100
+    午後2: 1100
+    夜間1: 1300
+    夜間2: 1300
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=3
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - ホールB
+  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  fee: 4800
+  sound_source: https://enoki-chiiki.tokyo/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 若松地域センター
+  name: 第1集会室
+  capacity: 70
+  slot_fees:
+    午前: 2400
+    午後1: 2400
+    午後2: 2400
+    夜間1: 3000
+    夜間2: 3000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 10800
+- facility: 若松地域センター
+  name: 調理室
+  capacity: 10
+  slot_fees:
+    午前: 1400
+    午後1: 1400
+    午後2: 1400
+    夜間1: 1700
+    夜間2: 1700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 6200
+- facility: 若松地域センター
+  name: 第2集会室A
+  capacity: 24
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 4000
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://wakamatsucenter.com/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 若松地域センター
+  name: 第2集会室B
+  capacity: 24
+  slot_fees:
+    午前: 1000
+    午後1: 1000
+    午後2: 1000
+    夜間1: 1200
+    夜間2: 1200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 4400
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://wakamatsucenter.com/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 若松地域センター
+  name: はなみずき
+  capacity: 20
+  slot_fees:
+    午前: 1000
+    午後1: 1000
+    午後2: 1000
+    夜間1: 1200
+    夜間2: 1200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4400
+  usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  sound_source: https://wakamatsucenter.com/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 若松地域センター
+  name: つばき
+  capacity: 10
+  slot_fees:
+    午前: 800
+    午後1: 800
+    午後2: 800
+    夜間1: 1000
+    夜間2: 1000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 3600
+  conditional_reason: 会議・打合せ等は他の部屋が空いていない場合に限る。通常の空室判定だけでは利用条件を確認できません。
+  usage_note: 小さな電子音の扱いは未確認。
+  sound_source: https://wakamatsucenter.com/facilities.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 他室の空き状況による条件付き
+- facility: 若松地域センター
+  name: スタジオYM
+  capacity: 15
+  slot_fees:
+    午前: 1600
+    午後1: 1600
+    午後2: 1600
+    夜間1: 2000
+    夜間2: 2000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7200
+- facility: 若松地域センター
+  name: 3Fホール
+  capacity: 130
+  slot_fees:
+    午前: 3700
+    午後1: 3700
+    午後2: 3700
+    夜間1: 4600
+    夜間2: 4600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 16600
+- facility: 若松地域センター
+  name: B1ホール
+  capacity: 40
+  slot_fees:
+    午前: 2100
+    午後1: 2100
+    午後2: 2100
+    夜間1: 2600
+    夜間2: 2600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  fee: 9400
+- facility: 若松地域センター
+  name: B1集会室
+  capacity: 48
+  slot_fees:
+    午前: 1400
+    午後1: 1400
+    午後2: 1400
+    夜間1: 1700
+    夜間2: 1700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  fee: 6200
+- facility: 大久保地域センター
+  name: 会議室A
+  capacity: 60
+  slot_fees:
+    午前: 1800
+    午後1: 1800
+    午後2: 1800
+    夜間1: 2200
+    夜間2: 2200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=5
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 8000
+- facility: 大久保地域センター
+  name: 調理工作室
+  capacity: 30
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=5
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5400
+  usage_note: 楽器の使用は要確認。小さな電子音の扱いは未確認。
+  sound_source: https://ookubocc.tokyo/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 大久保地域センター
+  name: 和室
+  capacity: 56
+  slot_fees:
+    午前: 1800
+    午後1: 1800
+    午後2: 1800
+    夜間1: 2200
+    夜間2: 2200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=5
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 8000
+- facility: 大久保地域センター
+  name: 会議室B
+  capacity: 30
+  slot_fees:
+    午前: 800
+    午後1: 800
+    午後2: 800
+    夜間1: 1000
+    夜間2: 1000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=5
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 3600
+  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  sound_source: https://ookubocc.tokyo/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 大久保地域センター
+  name: 会議室C
+  capacity: 24
+  slot_fees:
+    午前: 700
+    午後1: 700
+    午後2: 700
+    夜間1: 800
+    夜間2: 800
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=5
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 3000
+  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  sound_source: https://ookubocc.tokyo/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 大久保地域センター
+  name: 多目的ホール
+  capacity: 120
+  slot_fees:
+    午前: 4000
+    午後1: 4000
+    午後2: 4000
+    夜間1: 5000
+    夜間2: 5000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=5
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 18000
+- facility: 戸塚地域センター
+  name: 多目的ホール
+  capacity: 180
+  slot_fees:
+    午前: 4400
+    午後1: 4400
+    午後2: 4400
+    夜間1: 5500
+    夜間2: 5500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 19800
+- facility: 戸塚地域センター
+  name: 会議室4
+  capacity: 12
+  slot_fees:
+    午前: 500
+    午後1: 500
+    午後2: 500
+    夜間1: 600
+    夜間2: 600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 2200
+  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 戸塚地域センター
+  name: 音楽室
+  capacity: 20
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1200
+    夜間2: 1200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4200
+  usage_note: 大きな音・和太鼓は不可。完全防音ではありません。小さな電子音の扱いは未確認。
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 戸塚地域センター
+  name: 和室
+  capacity: 24
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5400
+  usage_note: 邦楽器は利用状況を踏まえて判断。小さな電子音の扱いは未確認。
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 戸塚地域センター
+  name: 会議室1
+  capacity: 30
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5400
+  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。 備付音響設備は会議室1・2の一体利用時のみ。
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 戸塚地域センター
+  name: 会議室2
+  capacity: 18
+  slot_fees:
+    午前: 600
+    午後1: 600
+    午後2: 600
+    夜間1: 700
+    夜間2: 700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 2600
+  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。 備付音響設備は会議室1・2の一体利用時のみ。
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 戸塚地域センター
+  name: 会議室3
+  capacity: 12
+  slot_fees:
+    午前: 500
+    午後1: 500
+    午後2: 500
+    夜間1: 600
+    夜間2: 600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 2200
+  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 戸塚地域センター
+  name: 調理・手工芸室
+  capacity: 12
+  slot_fees:
+    午前: 1000
+    午後1: 1000
+    午後2: 1000
+    夜間1: 1200
+    夜間2: 1200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4400
+  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 戸塚地域センター
+  name: 集会室1
+  capacity: 39
+  slot_fees:
+    午前: 1400
+    午後1: 1400
+    午後2: 1400
+    夜間1: 1800
+    夜間2: 1800
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  fee: 6400
+- facility: 戸塚地域センター
+  name: 集会室2
+  capacity: 16
+  slot_fees:
+    午前: 600
+    午後1: 600
+    午後2: 600
+    夜間1: 800
+    夜間2: 800
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先のため取消となる場合あり。小さな電子音の扱いは未確認。
+  fee: 2800
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 戸塚地域センター
+  name: 集会室3
+  capacity: 6
+  slot_fees:
+    午前: 300
+    午後1: 300
+    午後2: 300
+    夜間1: 400
+    夜間2: 400
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=6
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先のため取消となる場合あり。小さな電子音の扱いは未確認。
+  fee: 1400
+  sound_source: https://www.tcc-tokyo.net/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 落合第一地域センター
+  name: 4Fホール
+  capacity: 150
+  slot_fees:
+    午前: 5000
+    午後1: 5000
+    午後2: 5000
+    夜間1: 6200
+    夜間2: 6200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 22400
+- facility: 落合第一地域センター
+  name: 和室
+  capacity: 40
+  slot_fees:
+    午前: 1900
+    午後1: 1900
+    午後2: 1900
+    夜間1: 2300
+    夜間2: 2300
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 8400
+- facility: 落合第一地域センター
+  name: 第一集会室A
+  capacity: 54
+  slot_fees:
+    午前: 2300
+    午後1: 2300
+    午後2: 2300
+    夜間1: 2800
+    夜間2: 2800
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - 第1集会室A
+  fee: 10200
+- facility: 落合第一地域センター
+  name: 第一集会室B
+  capacity: 36
+  slot_fees:
+    午前: 1600
+    午後1: 1600
+    午後2: 1600
+    夜間1: 2000
+    夜間2: 2000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - 第1集会室B
+  fee: 7200
+- facility: 落合第一地域センター
+  name: 第二集会室
+  capacity: 24
+  slot_fees:
+    午前: 1100
+    午後1: 1100
+    午後2: 1100
+    夜間1: 1300
+    夜間2: 1300
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - 第2集会室
+  fee: 4800
+  usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  sound_source: https://www.ochiai1center.com/facility/
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 落合第一地域センター
+  name: 調理室
+  capacity: 25
+  slot_fees:
+    午前: 2100
+    午後1: 2100
+    午後2: 2100
+    夜間1: 2600
+    夜間2: 2600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 9400
+- facility: 落合第一地域センター
+  name: B1ホールA
+  capacity: 36
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - ホールA
+  usage_note: 葬儀優先のため取消となる場合あり。公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  fee: 5400
+  sound_source: https://www.ochiai1center.com/facility/
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 落合第一地域センター
+  name: B1ホールB
+  capacity: 24
+  slot_fees:
+    午前: 1100
+    午後1: 1100
+    午後2: 1100
+    夜間1: 1300
+    夜間2: 1300
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - ホールB
+  usage_note: 葬儀優先のため取消となる場合あり。公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  fee: 4800
+  sound_source: https://www.ochiai1center.com/facility/
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 落合第一地域センター
+  name: 和室控室
+  capacity: 12
+  slot_fees:
+    午前: 500
+    午後1: 500
+    午後2: 500
+    夜間1: 600
+    夜間2: 600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=7
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  usage_note: 葬儀優先のため取消となる場合あり。公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  fee: 2200
+  sound_source: https://www.ochiai1center.com/facility/
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 落合第二地域センター
+  name: 多目的ホール
+  capacity: 100
+  slot_fees:
+    午前: 4500
+    午後1: 4500
+    午後2: 4500
+    夜間1: 5600
+    夜間2: 5600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 20200
+- facility: 落合第二地域センター
+  name: 調理室
+  capacity: 12
+  slot_fees:
+    午前: 800
+    午後1: 800
+    午後2: 800
+    夜間1: 1000
+    夜間2: 1000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 3600
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 落合第二地域センター
+  name: 工芸美術室
+  capacity: 12
+  slot_fees:
+    午前: 800
+    午後1: 800
+    午後2: 800
+    夜間1: 1000
+    夜間2: 1000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 3600
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 落合第二地域センター
+  name: 音楽室
+  capacity: 18
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 4000
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 落合第二地域センター
+  name: 和室
+  capacity: 30
+  slot_fees:
+    午前: 1100
+    午後1: 1100
+    午後2: 1100
+    夜間1: 1400
+    夜間2: 1400
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 5000
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 落合第二地域センター
+  name: 茶室
+  capacity: 12
+  slot_fees:
+    午前: 400
+    午後1: 400
+    午後2: 400
+    夜間1: 500
+    夜間2: 500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 1800
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 落合第二地域センター
+  name: 小会議室
+  capacity: 18
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 4000
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 落合第二地域センター
+  name: 大会議室A
+  capacity: 24
+  slot_fees:
+    午前: 1100
+    午後1: 1100
+    午後2: 1100
+    夜間1: 1300
+    夜間2: 1300
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 4800
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 落合第二地域センター
+  name: 大会議室B
+  capacity: 24
+  slot_fees:
+    午前: 1000
+    午後1: 1000
+    午後2: 1000
+    夜間1: 1300
+    夜間2: 1300
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
+  fee: 4600
+  restriction_origin: user_confirmed
+  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  sound_source: https://www.ochiai2center.com/facilities/
+  sound_checked_on: '2026-09-30'
+  sound_review: 利用不可（利用者の確認結果）
+- facility: 柏木地域センター
+  name: 会議室1A
+  capacity: 24
+  slot_fees:
+    午前: 1600
+    午後1: 1600
+    午後2: 1600
+    夜間1: 2000
+    夜間2: 2000
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=9
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7200
+- facility: 柏木地域センター
+  name: 会議室1B
+  capacity: 12
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=9
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4000
+  blocked_reason: 窓がなく換気できないため、公式案内で当面の単独利用を中止。1Aとの一体利用は4枠11,200円で予算超過。
+  restriction_origin: official_website
+  usage_note: 単独で空き表示が出ても利用可能とは扱えません。
+  sound_source: https://www.kashiwagicc.com/施設のご案内/
+  sound_checked_on: '2026-09-30'
+  sound_review: 単独利用休止
+- facility: 柏木地域センター
+  name: 調理室
+  capacity: 32
+  slot_fees:
+    午前: 2500
+    午後1: 2500
+    午後2: 2500
+    夜間1: 3100
+    夜間2: 3100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=9
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 11200
+- facility: 柏木地域センター
+  name: 和室
+  capacity: 20
+  slot_fees:
+    午前: 1300
+    午後1: 1300
+    午後2: 1300
+    夜間1: 1600
+    夜間2: 1600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=9
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5800
+  usage_note: 和室は合唱・楽器練習等不可。小さな電子音の扱いは未確認。
+  sound_source: https://www.kashiwagicc.com/施設のご案内/
+  sound_checked_on: '2026-09-30'
+  sound_review: 楽器等の制限・電子音要確認
+- facility: 柏木地域センター
+  name: 会議室2
+  capacity: 30
+  slot_fees:
+    午前: 2100
+    午後1: 2100
+    午後2: 2100
+    夜間1: 2600
+    夜間2: 2600
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=9
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 9400
+- facility: 柏木地域センター
+  name: 音楽室
+  capacity: 15
+  slot_fees:
+    午前: 1700
+    午後1: 1700
+    午後2: 1700
+    夜間1: 2100
+    夜間2: 2100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=9
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 7600
+- facility: 柏木地域センター
+  name: 多目的ホール
+  capacity: 120
+  slot_fees:
+    午前: 4700
+    午後1: 4700
+    午後2: 4700
+    夜間1: 5800
+    夜間2: 5800
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=9
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 21000
+- facility: 角筈地域センター
+  name: 会議室A
+  capacity: 30
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=10
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 5400
+  usage_note: 区公式案内を確認。運営サイトの独自の音出し規則は本文取得できず未確認。
+  sound_source: https://www.city.shinjuku.lg.jp/soshiki/tsunohazu01_002048.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 独自規則の確認未完了
+- facility: 角筈地域センター
+  name: 会議室B
+  capacity: 24
+  slot_fees:
+    午前: 900
+    午後1: 900
+    午後2: 900
+    夜間1: 1100
+    夜間2: 1100
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=10
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 4000
+  usage_note: 区公式案内を確認。運営サイトの独自の音出し規則は本文取得できず未確認。
+  sound_source: https://www.city.shinjuku.lg.jp/soshiki/tsunohazu01_002048.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 独自規則の確認未完了
+- facility: 角筈地域センター
+  name: クッキングルーム
+  capacity: 42
+  slot_fees:
+    午前: 1400
+    午後1: 1400
+    午後2: 1400
+    夜間1: 1700
+    夜間2: 1700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=10
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 6200
+- facility: 角筈地域センター
+  name: 和室1
+  capacity: 20
+  slot_fees:
+    午前: 1200
+    午後1: 1200
+    午後2: 1200
+    夜間1: 1500
+    夜間2: 1500
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=10
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - 和室Ⅰ
+  fee: 5400
+  usage_note: 区公式案内を確認。運営サイトの独自の音出し規則は本文取得できず未確認。
+  sound_source: https://www.city.shinjuku.lg.jp/soshiki/tsunohazu01_002048.html
+  sound_checked_on: '2026-09-30'
+  sound_review: 独自規則の確認未完了
+- facility: 角筈地域センター
+  name: 和室2
+  capacity: 20
+  slot_fees:
+    夜間1: 1200
+    夜間2: 1200
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=10
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  aliases:
+  - 和室Ⅱ
+  excluded_reason: 昼間は談話室のため、午後2を貸室として予約できない。
+- facility: 角筈地域センター
+  name: レクリエーションホール
+  capacity: 90
+  slot_fees:
+    午前: 3800
+    午後1: 3800
+    午後2: 3800
+    夜間1: 4700
+    夜間2: 4700
+  source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=10
+  checked_on: '2026-09-29'
+  fee_note: 一般団体の室料。備品・調理設備等は別途。
+  fee: 17000
