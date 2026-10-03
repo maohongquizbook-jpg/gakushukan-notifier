@@ -1,34 +1,518 @@
-# Discord Webhook URL（GitHub Actionsで使う場合はここは空のままにし、Secretsに登録する）
-discord_webhook_url: ""
-
-# 「どこで」の選択値。1000_1650 = 生涯学習館（5館全部が1回の検索で取得される）
-category_value: "1000_1650"
-
-# 特定の館だけに絞りたい場合に館名を列挙（空なら全館対象）
-# 例: facility_filter: [西戸山, 戸山]
+# 生涯学習館5館29室。午後＋夜間。料金上限・人数下限なし。
+discord_webhook_url: ''
+category_value: '1000_1650'
 facility_filter: []
-
-# 通知条件: 同じ部屋・同じ日にここで指定した時間帯が「全部」空いていること
 required_slots:
-  - 午後
-  - 夜間
-
-# --loop（常駐モード）でのチェック間隔（分）
+- 午後
+- 夜間
 check_interval_min: 5
-
-# 常駐モードの稼働時間帯 [開始時, 終了時)
-active_hours: [7, 23]
-
-# 何か月先まで検索するか（Nか月先の「月末」まで。予約枠の公開ルールに合わせて自動計算）
-# 例: 3 なら 7月中は10/31まで、8月に入ると自動的に11/30までに広がる
+active_hours:
+- 7
+- 23
 horizon_months: 3
-
-# 成立していた「午後＋夜間の連続空き」が予約されて埋まった時にも通知するか
 notify_filled: false
-
-# 通知量を抑える設定。必要な場合だけ @here に変更（分割通知でも最初の1通のみ）。
-discord_mention: ""
-# 一時的な表示欠落で満室→再空きにならないよう、2回の確認で空き終了を確定。
+discord_mention: ''
 closed_confirmations: 2
-# 初回・設定変更・72時間を超える停止後は、現在の空きを通知せず基準登録。
 baseline_after_hours: 72
+room_catalog:
+- facility: 赤城
+  facility_aliases:
+  - 赤城生涯学習館
+  name: 講習室
+  capacity: 20
+  slot_fees:
+    午後: 800
+    夜間: 1100
+  fee: 1900
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=649
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=649
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=649
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 赤城
+  facility_aliases:
+  - 赤城生涯学習館
+  name: レクホール
+  capacity: 60
+  slot_fees:
+    午後: 2800
+    夜間: 3400
+  fee: 6200
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=649
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=649
+  checked_on: '2026-09-29'
+  aliases:
+  - レクリエーションホール
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=649
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 赤城
+  facility_aliases:
+  - 赤城生涯学習館
+  name: 教養室A
+  capacity: 30
+  slot_fees:
+    午後: 1000
+    夜間: 1300
+  fee: 2300
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=649
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=649
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=649
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 赤城
+  facility_aliases:
+  - 赤城生涯学習館
+  name: 教養室B
+  capacity: 15
+  slot_fees:
+    午後: 400
+    夜間: 600
+  fee: 1000
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=649
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=649
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=649
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 赤城
+  facility_aliases:
+  - 赤城生涯学習館
+  name: 視聴覚室
+  capacity: 25
+  slot_fees:
+    午後: 700
+    夜間: 800
+  fee: 1500
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=649
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=649
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=649
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 赤城
+  facility_aliases:
+  - 赤城生涯学習館
+  name: 和室
+  capacity: 20
+  slot_fees:
+    午後: 600
+    夜間: 700
+  fee: 1300
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=649
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=649
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=649
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 住吉町
+  facility_aliases:
+  - 住吉町生涯学習館
+  name: 学習室A
+  capacity: 40
+  slot_fees:
+    午後: 1300
+    夜間: 1600
+  fee: 2900
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=646
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=646
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=646
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 住吉町
+  facility_aliases:
+  - 住吉町生涯学習館
+  name: 学習室B
+  capacity: 10
+  slot_fees:
+    午後: 600
+    夜間: 800
+  fee: 1400
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=646
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=646
+  checked_on: '2026-09-29'
+  usage_note: 音楽・動きを伴う利用は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=646
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 住吉町
+  facility_aliases:
+  - 住吉町生涯学習館
+  name: 美術工芸室
+  capacity: 30
+  slot_fees:
+    午後: 1300
+    夜間: 1700
+  fee: 3000
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=646
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=646
+  checked_on: '2026-09-29'
+  usage_note: 音楽・動きを伴う利用は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=646
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 住吉町
+  facility_aliases:
+  - 住吉町生涯学習館
+  name: レクホール
+  capacity: 60
+  slot_fees:
+    午後: 2000
+    夜間: 2400
+  fee: 4400
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=646
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=646
+  checked_on: '2026-09-29'
+  aliases:
+  - レクリエーションホール
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=646
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 北新宿
+  facility_aliases:
+  - 北新宿生涯学習館
+  name: レクホール
+  capacity: 60
+  slot_fees:
+    午後: 2400
+    夜間: 2900
+  fee: 5300
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=647
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=647
+  checked_on: '2026-09-29'
+  aliases:
+  - レクリエーションホール
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=647
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 北新宿
+  facility_aliases:
+  - 北新宿生涯学習館
+  name: 学習室A
+  capacity: 32
+  slot_fees:
+    午後: 1300
+    夜間: 1700
+  fee: 3000
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=647
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=647
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=647
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 北新宿
+  facility_aliases:
+  - 北新宿生涯学習館
+  name: 学習室B
+  capacity: 16
+  slot_fees:
+    午後: 700
+    夜間: 800
+  fee: 1500
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=647
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=647
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=647
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 北新宿
+  facility_aliases:
+  - 北新宿生涯学習館
+  name: 視聴覚室
+  capacity: 30
+  slot_fees:
+    午後: 1100
+    夜間: 1400
+  fee: 2500
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=647
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=647
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=647
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 北新宿
+  facility_aliases:
+  - 北新宿生涯学習館
+  name: 講習室
+  capacity: 35
+  slot_fees:
+    午後: 1600
+    夜間: 2100
+  fee: 3700
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=647
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=647
+  checked_on: '2026-09-29'
+  aliases:
+  - 講習室（調理室）
+  usage_note: 音楽・演劇は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=647
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 北新宿
+  facility_aliases:
+  - 北新宿生涯学習館
+  name: 和室
+  capacity: 30
+  slot_fees:
+    午後: 1400
+    夜間: 1700
+  fee: 3100
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=647
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=647
+  checked_on: '2026-09-29'
+  usage_note: 音楽・演劇は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=647
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 西戸山
+  facility_aliases:
+  - 西戸山生涯学習館
+  name: 講習室
+  capacity: 30
+  slot_fees:
+    午後: 1300
+    夜間: 1700
+  fee: 3000
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=644
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=644
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=644
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 西戸山
+  facility_aliases:
+  - 西戸山生涯学習館
+  name: 視聴覚室
+  capacity: 40
+  slot_fees:
+    午後: 1500
+    夜間: 1900
+  fee: 3400
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=644
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=644
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=644
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 西戸山
+  facility_aliases:
+  - 西戸山生涯学習館
+  name: 教養室B
+  capacity: 15
+  slot_fees:
+    午後: 500
+    夜間: 600
+  fee: 1100
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=644
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=644
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=644
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 西戸山
+  facility_aliases:
+  - 西戸山生涯学習館
+  name: 教養室A
+  capacity: 40
+  slot_fees:
+    午後: 1500
+    夜間: 1900
+  fee: 3400
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=644
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=644
+  checked_on: '2026-09-29'
+  usage_note: 音の出る機器は館・部屋によって制限があります。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=644
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 西戸山
+  facility_aliases:
+  - 西戸山生涯学習館
+  name: 和室
+  capacity: 20
+  slot_fees:
+    午後: 900
+    夜間: 1200
+  fee: 2100
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=644
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=644
+  checked_on: '2026-09-29'
+  usage_note: 音楽・演劇は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=644
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: ホール
+  capacity: 100
+  slot_fees:
+    午後: 3500
+    夜間: 4300
+  fee: 7800
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 大きな音が出る活動は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: ワークルーム
+  capacity: 40
+  slot_fees:
+    午後: 2400
+    夜間: 2900
+  fee: 5300
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 大きな音が出る活動は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: 学習室A
+  capacity: 15
+  slot_fees:
+    午後: 500
+    夜間: 600
+  fee: 1100
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 音楽は原則夜間利用不可・要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: 学習室B
+  capacity: 15
+  slot_fees:
+    午後: 500
+    夜間: 600
+  fee: 1100
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 音楽は原則夜間利用不可・要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: 学習室C
+  capacity: 40
+  slot_fees:
+    午後: 1600
+    夜間: 2000
+  fee: 3600
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 大きな音が出る活動は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: 学習室D
+  capacity: 40
+  slot_fees:
+    午後: 1600
+    夜間: 2000
+  fee: 3600
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 大きな音が出る活動は要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 禁止明記なし・許可未確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: 和室
+  capacity: 30
+  slot_fees:
+    午後: 1300
+    夜間: 1600
+  fee: 2900
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 音楽利用不可。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
+- facility: 戸山
+  facility_aliases:
+  - 戸山生涯学習館
+  name: 多目的室
+  capacity: 10
+  slot_fees:
+    午後: 500
+    夜間: 600
+  fee: 1100
+  fee_note: 一般団体の室料。登録団体は原則5割減額。備品等は別途。
+  source: https://www.regasu-shinjuku.or.jp/?p=648
+  current_facility_page: https://www.regasu-shinjuku.or.jp/?p=648
+  checked_on: '2026-09-29'
+  usage_note: 音楽は原則夜間利用不可・要相談。小さな電子音の扱いは未確認。
+  sound_source: https://www.regasu-shinjuku.or.jp/?p=648
+  sound_checked_on: '2026-09-30'
+  sound_review: 音楽等の制限・電子音要確認
