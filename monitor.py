@@ -634,17 +634,81 @@ def match_allowlist(room_text: str, allowlist: list):
     return None
 
 
+def normalize_room_name(text):
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"\(\d+\s*(?:名|人)?\)$", "", text.strip())
+    return re.sub(r"\s+", "", text).replace("簞", "箪")
+
+
+def room_catalog(cfg):
+    if cfg.get("room_catalog"):
+        return cfg["room_catalog"]
+    return [dict(room, facility=target["kan"])
+            for target in cfg.get("targets", []) for room in target["rooms"]]
+
+
+def match_room(room_text, entries):
+    """館と部屋を別々に完全一致。定員表記・全半角・明示した別名だけを吸収。"""
+    facility, sep, room = room_text.partition("・")
+    if not sep:
+        return None
+    for entry in entries:
+        facilities = [entry["facility"], *entry.get("facility_aliases", [])]
+        names = [entry["name"], *entry.get("aliases", [])]
+        if (normalize_room_name(facility) in {normalize_room_name(x) for x in facilities}
+                and normalize_room_name(room) in {normalize_room_name(x) for x in names}):
+            return entry
+    return None
+
+
+def annotate_room(g, entry, cfg):
+    for field in ("capacity", "fee", "fee_note", "usage_note", "blocked_reason",
+                  "conditional_reason", "normal_fee", "source", "slot_times"):
+        if field in entry:
+            g[field] = entry[field]
+    required = cfg["required_slots"]
+    optional = [s for s in cfg.get("optional_slots", [])
+                if g["slots"].get(s) in AVAILABLE_STATES]
+    order = list(cfg.get("slot_windows", {})) or [*required, *optional]
+    g["available_slots"] = [s for s in order if s in required or s in optional]
+    g["optional_available"] = optional
+    rates = entry.get("slot_fees", {})
+    if rates:
+        g["required_fee"] = sum(rates[s] for s in required)
+        g["fee"] = sum(rates[s] for s in g["available_slots"])
+        g["budget_fee"] = sum(rates[s] for s in cfg.get("budget_slots", required))
+    else:
+        g["required_fee"] = g.get("fee")
+        g["budget_fee"] = g.get("fee")
+    g["has_optional_slots"] = bool(cfg.get("optional_slots"))
+
+
 def find_matched(groups: dict, cfg: dict) -> dict:
     required = cfg["required_slots"]
     flt = cfg.get("facility_filter") or []
     allowlist = cfg.get("room_allowlist") or []
     matched = {}
+    catalog = room_catalog(cfg)
+    unknown = set()
     today, end = search_bounds(cfg)
     for gkey, g in groups.items():
         if not g["is_target"] or not g["date"] or not today <= g["date"] <= end:
             continue
         if flt and not any(f in gkey for f in flt):
             continue
+        if catalog:
+            entry = match_room(g["room"], catalog)
+            if entry is None:
+                unknown.add(g["room"])
+                continue
+            if entry.get("monitor", True) is False:
+                continue
+            if entry.get("excluded_reason"):
+                continue
+            annotate_room(g, entry, cfg)
+            if cfg.get("max_total_fee") is not None:
+                if g.get("budget_fee") is None or g["budget_fee"] > cfg["max_total_fee"]:
+                    continue
         if allowlist:
             entry = match_allowlist(g["room"], allowlist)
             if entry is None:
@@ -653,6 +717,8 @@ def find_matched(groups: dict, cfg: dict) -> dict:
             g["capacity"] = entry.get("capacity")
         if all(g["slots"].get(s) in AVAILABLE_STATES for s in required):
             matched[gkey] = g
+    for room in sorted(unknown):
+        print(f"[WARN] 施設台帳に未登録のため料金・定員を確認してください: {room}")
     return matched
 
 
@@ -703,15 +769,19 @@ def format_group_line(gkey: str, g: dict, reopened: bool) -> str:
     else:
         day = gkey.split("|")[-1]
     tag = " ♻️再度空き" if reopened else ""
-    extra = ""
-    if g.get("capacity") or g.get("fee"):
-        parts = []
-        if g.get("capacity"):
-            parts.append(f"定員{g['capacity']}名")
-        if g.get("fee"):
-            parts.append(f"計{g['fee']:,}円")
-        extra = f" [{'・'.join(parts)}]"
-    return f"・**{day}** {g['room']}（{NOTIFY_LABEL}）{extra}{tag}"
+    capacity = f"最大{g['capacity']}人" if g.get("capacity") is not None else "定員未確認"
+    fee = f"{g['fee']:,}円" if g.get("fee") is not None else "料金未確認"
+    slots = "＋".join(g.get("available_slots", [])) or NOTIFY_LABEL
+    line = f"・**{day}** {g['room']}｜{capacity}{tag}\n　空き: {slots}｜合計 {fee}"
+    if g.get("has_optional_slots"):
+        extra = "・".join(g["optional_available"]) or "なし"
+        line += f"（必須2枠 {g['required_fee']:,}円／追加の空き: {extra}）"
+    if g.get("normal_fee") is not None:
+        line += f"／通常料金 {g['normal_fee']:,}円"
+    for field in ("blocked_reason", "conditional_reason", "fee_note", "usage_note"):
+        if g.get(field):
+            line += f"\n　{g[field]}"
+    return line
 
 
 def post_discord(webhook_url, payload, dry_run):
@@ -762,9 +832,23 @@ def send_lines(webhook_url, rows, title, color, dry_run, mention="", on_sent=Non
 
 
 def notify_discord(webhook_url: str, items: list, dry_run: bool, mention="", on_sent=None):
-    send_lines(webhook_url, [(k, format_group_line(k, g, r)) for k, g, r in items],
-               f"🎉 土日祝 {NOTIFY_LABEL}の連続空きが出ました", 0x2ECC71,
-               dry_run, mention, on_sent)
+    categories = (
+        ("available", f"🎉 土日祝 {NOTIFY_LABEL}の空きが出ました", 0x2ECC71),
+        ("blocked", "🚫 空いてはいるが利用出来ない施設", 0xE67E22),
+        ("conditional", "🔎 空いているが利用条件の確認が必要な施設", 0xF1C40F),
+    )
+    for category, title, color in categories:
+        rows = [(k, format_group_line(k, g, r)) for k, g, r in items
+                if notification_category(g) == category]
+        if rows:
+            send_lines(webhook_url, rows, title, color, dry_run, mention, on_sent)
+            mention = ""
+
+
+def notification_category(g):
+    if g.get("blocked_reason"):
+        return "blocked"
+    return "conditional" if g.get("conditional_reason") else "available"
 
 
 def format_slot_key(k: str) -> str:
@@ -784,20 +868,11 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool,
     if matched is None:
         matched = find_matched(build_groups(raw_slots), cfg)
     ordered = sorted(matched.items(), key=lambda kv: (kv[1]["date"] or date.max, kv[0]))
-    pair_lines = [f"・{format_group_line(k, g, False).lstrip('・')}"
-                  for k, g in ordered]
-    pair_body = "\n".join(pair_lines[:25]) if pair_lines else "（現在、条件成立の空きはありません）"
-    if len(pair_lines) > 25:
-        pair_body += f"\n…ほか {len(pair_lines) - 25} 件"
-    avail = sorted(avail, key=lambda k: (k.split("|")[-1], k))
-    lines = [f"・{format_slot_key(k)}" for k in avail[:25]]
-    if len(avail) > 25:
-        lines.append(f"…ほか {len(avail) - 25} 件")
-    body = "\n".join(lines) if lines else "（現在、土日祝の空きコマはありません）"
+    # 詳細は通常通知と同じ分類・分割処理へ渡す。長い説明でもEmbed上限を超えない。
     status = "✅ 取得成功" if ok else "⚠️ 一部取得失敗（下記参照）"
     err_body = ""
     if errors:
-        lines_e = "\n".join(f"・{e}" for e in errors[:15])
+        lines_e = "\n".join(f"・{str(e)[:150]}" for e in errors[:15])
         if len(errors) > 15:
             lines_e += f"\n…ほか {len(errors) - 15} 件"
         err_body = f"\n**⚠️ 取得できなかった対象: {len(errors)}件**\n{lines_e}\n"
@@ -806,8 +881,9 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool,
             "title": "🔔 テスト通知: 監視システムは動作しています",
             "description": (
                 f"{status}\n{err_body}\n"
-                f"**🎯 {NOTIFY_LABEL}の連続空き（通知対象）: {len(matched)}件**\n{pair_body}\n\n"
-                f"**現在の土日祝の空きコマ（全体）: {len(avail)}件**\n{body}\n\n"
+                f"**🎯 {NOTIFY_LABEL}の空き（通知対象）: {len(matched)}件**\n"
+                "料金・定員・利用条件は、この後の分類別メッセージに表示します（各分類先頭5件）。\n\n"
+                f"**取得した空きコマ（全体）: {len(avail)}件**\n\n"
                 "※これはテスト通知です。実際の通知は上の🎯に新しい枠が"
                 "現れた時にだけ届きます。\n"
                 f"[予約システムを開く]({BASE_URL})"
@@ -818,6 +894,11 @@ def send_test_notification(cfg: dict, raw_slots: dict, ok: bool, dry_run: bool,
     }
     payload["allowed_mentions"] = {"parse": []}
     post_discord(cfg.get("discord_webhook_url", ""), payload, dry_run)
+    examples = []
+    for category in ("available", "blocked", "conditional"):
+        examples.extend([(k, g, False) for k, g in ordered
+                         if notification_category(g) == category][:5])
+    notify_discord(cfg.get("discord_webhook_url", ""), examples, dry_run)
 
 
 def format_lost_key(gkey: str) -> str:
@@ -863,7 +944,8 @@ def search_bounds(cfg):
 def criteria_hash(cfg):
     fields = ("base_url", "category_value", "bname_values", "include_mansion_in_room",
               "required_slots", "slot_windows", "facility_filter", "room_allowlist",
-              "targets", "horizon_days", "horizon_months")
+              "targets", "horizon_days", "horizon_months", "room_catalog", "optional_slots",
+              "max_total_fee", "budget_slots")
     criteria = {k: cfg.get(k) for k in fields}
     return hashlib.sha256(json.dumps(criteria, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
