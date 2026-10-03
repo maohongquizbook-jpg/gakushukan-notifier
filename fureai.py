@@ -274,6 +274,13 @@ def collect_room_slots(page, cfg, horizon_end):
             raise ValueError("日付送りの完了を確認できません")
         if iso > horizon_end:
             return pairs
+        # 老人福祉センターの一般貸出は日曜・祝日（敬老の日を除く）のみ昼間あり。
+        # 公式に昼間貸出がない日は、表示に午後欄がなくても取得失敗にしない。
+        if cfg.get("day_policy") == "sundays_and_holidays_except_keiro":
+            d = date.fromisoformat(iso)
+            keiro = d.month == 9 and d.weekday() == 0 and 15 <= d.day <= 21
+            if keiro or not (d.weekday() == 6 or core.jpholiday.is_holiday(d)):
+                states["午後"] = "closed"
         missing = [slot for slot in cfg["required_slots"] if slot not in states]
         if missing:
             raise ValueError(f"{iso}: 必須時間帯 {', '.join(missing)} を解析できません"
@@ -351,6 +358,9 @@ def fetch_availability(cfg: dict, debug: bool):
         page = fresh_page()
         try:
             for tgt in cfg["targets"]:
+                active_rooms = [r for r in tgt["rooms"] if r.get("monitor", True)]
+                if not active_rooms:
+                    continue
                 ward, kan = tgt["ward"], tgt["kan"]
                 print(f"[INFO] === {ward} / {kan} ===")
                 reached = walk_to_room_list(page, ward, kan)
@@ -361,11 +371,11 @@ def fetch_availability(cfg: dict, debug: bool):
                     reached = walk_to_room_list(page, ward, kan)
                 if not reached:
                     errors.append(f"{ward}/{kan}: 部屋一覧に到達できません")
-                    failed_rooms.update(f"{kan}・{r['name']}" for r in tgt["rooms"])
+                    failed_rooms.update(f"{kan}・{r['name']}" for r in active_rooms)
                     dump(page, f"kanfail_{kan}", screenshot=False)
                     continue
 
-                for room_cfg in tgt["rooms"]:
+                for room_cfg in active_rooms:
                     rname = room_cfg["name"]
                     room_label = f"{kan}・{rname}"
                     pairs = None
@@ -377,7 +387,10 @@ def fetch_availability(cfg: dict, debug: bool):
                                 dump(page, f"result_sample_{kan}_{rname}")
                                 dumped_sample = True
                             # 途中まで取れた部屋も、失敗時は一切採用しない。
-                            pairs = collect_room_slots(page, cfg, horizon_end)
+                            room_options = dict(cfg)
+                            if room_cfg.get("day_policy"):
+                                room_options["day_policy"] = room_cfg["day_policy"]
+                            pairs = collect_room_slots(page, room_options, horizon_end)
                             if not pairs:
                                 raise ValueError("空き状況を解析できません")
                             break
@@ -406,7 +419,7 @@ def fetch_availability(cfg: dict, debug: bool):
                         print(f"[WARN] {kan}: 部屋一覧へ戻れません: {e}")
         finally:
             browser.close()
-    total = sum(len(t["rooms"]) for t in cfg["targets"])
+    total = sum(r.get("monitor", True) for t in cfg["targets"] for r in t["rooms"])
     print(f"[INFO] 取得結果: 成功{total - len(failed_rooms)}/{total}室、保留{len(failed_rooms)}室")
     for room in sorted(failed_rooms):
         print(f"[WARN] 取得保留: {room}")
@@ -414,19 +427,11 @@ def fetch_availability(cfg: dict, debug: bool):
 
 
 def apply_fees(matched: dict, cfg: dict):
-    """成立グループに料金を付与する。"""
-    fee_map = {}
-    for tgt in cfg["targets"]:
-        for r in tgt["rooms"]:
-            fee_map[f"{tgt['kan']}・{r['name']}"] = r
-    import unicodedata
+    """旧呼出箇所とも互換に、共通の料金・定員・利用条件を付与する。"""
     for g in matched.values():
-        norm = unicodedata.normalize("NFKC", g["room"])
-        for name, room_cfg in fee_map.items():
-            if unicodedata.normalize("NFKC", name) == norm:
-                g["fee"] = room_cfg.get("fee")
-                g["capacity"] = room_cfg.get("capacity")
-                break
+        entry = core.match_room(g["room"], core.room_catalog(cfg))
+        if entry:
+            core.annotate_room(g, entry, cfg)
 
 
 def main():
