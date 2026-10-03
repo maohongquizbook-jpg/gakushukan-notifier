@@ -1,112 +1,618 @@
-# ===== 川崎市 ふれあいネット 会議室監視設定 =====
-# Webhook（GitHub ActionsではSecretsのDISCORD_WEBHOOK_FUREAIから注入）
-discord_webhook_url: ""
-
-state_file: "state_fureai.json"
-notify_label: "午後＋夜間"
-
-# 市民館系の時間区分（午後13:00-17:00 / 夜間17:30-21:00前後）
+# 川崎区・幸区・中原区38室。土日祝の午後＋夜間4,000円以内。利用条件・音出し条件は別分類。
+discord_webhook_url: ''
+state_file: state_fureai.json
+notify_label: 午後＋夜間
 slot_windows:
-  午前: [900, 1200]
-  午後: [1300, 1700]
-  夜間: [1730, 2130]
-
+  午前:
+  - 900
+  - 1200
+  午後:
+  - 1300
+  - 1700
+  夜間:
+  - 1730
+  - 2130
 required_slots:
-  - 午後
-  - 夜間
-
-# 監視対象（川崎区・幸区・中原区 / 定員11名以上 / 午後+夜間の土日祝料金 5,000円以内）
-# fee = 午後+夜間の合計（平日料金×1.2の土日祝料金）。
-# 幸市民館・日吉分館・プラザ大師/田島は市民館共通単価からの推定額（※要確認）
-# 監視対象: 川崎区・幸区・中原区 / 定員11名以上 / 土日祝の午後+夜間 合計4,000円以内
-# 料金・定員はすべて市公式ページ/PDFで個別確認済み（2026-07-16調査）
-# fee = 土日祝料金（平日×1.2）の 午後＋夜間 合計
-#
-# 【4,000円超のため対象外と確定した部屋】
-#   教育文化会館: 第1・2会議室, 第1-3・5・6学習室 (4,836円)
-#   幸市民館: 第1会議室(7,380円), 第2-4会議室(4,836円), 和室・実習室・音楽室・料理室(5,904円〜)
-#   中原市民館: 第1-5会議室(4,836円), 第6会議室・和室・実習室(5,904円), 視聴覚・音楽・料理室(7,380円)
-#   日吉分館: 第3学習室(4,836円) / 各館の学習室合併(5,616円〜)
-#   東海道かわさき宿交流館: 2時間3,200円の時間貸し制のため対象外
-# 【料金の公式確認が取れず保留中の施設（電話確認できれば追加可能）】
-#   エポックなかはら 第1-3会議室(中原区・ふれあいネット対応確認済み・044-722-0185)
-#   川崎市平和館 第1-3会議室・研修室(中原区・ふれあいネット対応確認済み・044-433-0171)
-#   幸スポーツセンター(幸区)
+- 午後
+- 夜間
 targets:
-  - ward: 川崎区
-    kan: 教育文化会館
-    rooms:
-      - {name: 第３会議室, fee: 3492}
-      - {name: 第４学習室, fee: 3492}
-  - ward: 川崎区
-    kan: プラザ大師
-    rooms:
-      - {name: 第１学習室, fee: 2808, capacity: 36}
-      - {name: 第２学習室, fee: 2808, capacity: 30}
-      - {name: 実習室, fee: 2808, capacity: 24}
-      - {name: 和室, fee: 2280, capacity: 12}
-  - ward: 川崎区
-    kan: プラザ田島
-    rooms:
-      - {name: 第１学習室, fee: 2808, capacity: 36}
-      - {name: 第２学習室, fee: 2808, capacity: 39}
-      - {name: 実習室, fee: 2808, capacity: 30}
-      - {name: 和室, fee: 2280, capacity: 16}
-  - ward: 幸区
-    kan: 日吉分館
-    rooms:
-      - {name: 第１学習室, fee: 2808, capacity: 24}
-      - {name: 第２学習室, fee: 2808, capacity: 27}
-      - {name: 第４学習室, fee: 2808, capacity: 27}
-      - {name: 実習室, fee: 2808, capacity: 24}
-      - {name: 和室, fee: 2280, capacity: 12}
-
-  - ward: 中原区
-    kan: 総合福祉センター
-    rooms:  # エポックなかはら。料金・定員は公式料金表(2023年4月版・写真)で確認済み
-      - {name: 和室, fee: 3170, capacity: 15}
-      - {name: 第１会議室, fee: 1700, capacity: 10}   # 単独10名。第2と連結利用で20名になる前提
-      - {name: 第２会議室, fee: 1700, capacity: 10}   # 同上（両方空きの通知が揃った時が連結チャンス）
-
-  - ward: 川崎区
-    kan: 老人福祉
-    rooms:  # かわさき老人福祉・地域交流センター。市公式料金PDFで確認済み・土日割増なし
-            # 月〜土(祝日除く)は17時以降のみ利用可のため、午後+夜間の成立は日曜・祝日のみ
-      - {name: 多目的室, fee: 1930, capacity: 24}
-  - ward: 川崎区
-    kan: 川崎マリエン
-    rooms:  # 公式料金表で確認済み。料金は「会議・研修目的の半額」適用時(土日祝2割増込み)
-      - {name: 第２会議室, fee: 1464, capacity: 14}
-      - {name: 第３会議室, fee: 1464, capacity: 14}
-      - {name: 和室, fee: 2196, capacity: 20}
-      - {name: 第１研修室, fee: 3048, capacity: 45}
-  - ward: 幸区
-    kan: 産業振興会館
-    rooms:  # 公式料金表で確認済み。土日祝の割増なし(営利目的のみ2倍)
-      - {name: 第１研修室, fee: 3040, capacity: 24}
-      - {name: 第２会議室, fee: 3460, capacity: 22}
-      - {name: 第３会議室, fee: 3460, capacity: 22}
-      - {name: 和室, fee: 3860, capacity: 18}
-  - ward: 中原区
-    kan: 平和館
-    rooms:  # 市公式ページで確認済み(土日祝欄)。夜間は18:00-21:30
-      - {name: 第１会議室, fee: 3040, capacity: 16}
-      - {name: 第２会議室, fee: 3770, capacity: 24}
-      - {name: 研修室, fee: 1700, capacity: 12}
-  - ward: 中原区
-    kan: 国際交流センター
-    rooms:  # 指定管理者公式料金表で確認済み(平日額×1.2・10円未満切捨て)
-      - {name: 第６会議室, fee: 1080, capacity: 18}
-      - {name: 交流サロン, fee: 2430, capacity: 30}
-
+- ward: 川崎区
+  kan: 教育文化会館
+  rooms:
+  - name: 第３会議室
+    fee: 3492
+    slot_fees:
+      午後: 1476
+      夜間: 2016
+    source: https://www.city.kawasaki.jp/kawasaki/cmsfiles/contents/0000143/143588/20230401siyouryou.pdf
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    capacity: 24
+    usage_note: この部屋では歌・楽器演奏不可。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000129825.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 楽器等の制限・電子音要確認
+  - name: 第４学習室
+    fee: 3492
+    slot_fees:
+      午後: 1476
+      夜間: 2016
+    source: https://www.city.kawasaki.jp/kawasaki/cmsfiles/contents/0000143/143588/20230401siyouryou.pdf
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    capacity: 24
+    usage_note: この部屋では歌・楽器演奏不可。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000129825.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 楽器等の制限・電子音要確認
+- ward: 川崎区
+  kan: プラザ大師
+  rooms:
+  - name: 第１学習室
+    fee: 2808
+    capacity: 36
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    blocked_reason: 公表規定では音が出る利用に第1・第2学習室の合併が必要。土日祝の午後＋夜間5,616円で4,000円を超えます。
+    restriction_origin: official_website
+    usage_note: 小さな電子音を例外とする規定は確認できませんでした。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音出しは併用必要・予算超過
+  - name: 第２学習室
+    fee: 2808
+    capacity: 30
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    blocked_reason: 公表規定では音が出る利用に第1・第2学習室の合併が必要。土日祝の午後＋夜間5,616円で4,000円を超えます。
+    restriction_origin: official_website
+    usage_note: 小さな電子音を例外とする規定は確認できませんでした。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音出しは併用必要・予算超過
+  - name: 実習室
+    fee: 2808
+    capacity: 24
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 和室
+    fee: 2280
+    capacity: 12
+    slot_fees:
+      午後: 936
+      夜間: 1344
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000156401.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+- ward: 川崎区
+  kan: プラザ田島
+  rooms:
+  - name: 第１学習室
+    fee: 2808
+    capacity: 36
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000030615.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: マイクや音響機器等で音・声が大きい場合は第1・第2合併（5,616円）が必要。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000085659.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音量・音響機器の条件確認
+  - name: 第２学習室
+    fee: 2808
+    capacity: 39
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000030615.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: マイクや音響機器等で音・声が大きい場合は第1・第2合併（5,616円）が必要。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000085659.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音量・音響機器の条件確認
+  - name: 実習室
+    fee: 2808
+    capacity: 30
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000030615.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000085659.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 和室
+    fee: 2280
+    capacity: 16
+    slot_fees:
+      午後: 936
+      夜間: 1344
+    source: https://www.city.kawasaki.jp/kawasaki/page/0000030615.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/kawasaki/page/0000085659.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+- ward: 幸区
+  kan: 日吉分館
+  rooms:
+  - name: 第１学習室
+    fee: 2808
+    capacity: 24
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第２学習室
+    fee: 2808
+    capacity: 27
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第４学習室
+    fee: 2808
+    capacity: 27
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    blocked_reason: 公表規定では音出し・音楽を流す利用に第3・第4学習室の予約が必要。土日祝の午後＋夜間7,644円で4,000円を超えます。
+    restriction_origin: official_website
+    usage_note: 小さな電子音を例外とする規定は確認できませんでした。
+    sound_source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音出しは併用必要・予算超過
+  - name: 実習室
+    fee: 2808
+    capacity: 24
+    slot_fees:
+      午後: 1200
+      夜間: 1608
+    source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 和室
+    fee: 2280
+    capacity: 12
+    slot_fees:
+      午後: 936
+      夜間: 1344
+    source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+    sound_source: https://www.city.kawasaki.jp/saiwai/page/0000025605.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+- ward: 中原区
+  kan: 総合福祉センター
+  rooms:
+  - name: 和室
+    fee: 3170
+    capacity: 15
+    slot_fees:
+      午後: 1460
+      夜間: 1710
+    source: https://sfc-kawasaki.jp/hole-kaigishitsu/
+    fee_source: https://sfc-kawasaki.jp/wp-content/uploads/2023/03/20230316_SisetuRyokinKaitei.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 他の利用者に迷惑となる音出し・大音量の催しは不可。小さな電子音の扱いは未確認。
+    sound_source: https://sfc-kawasaki.jp/hole-kaigishitsu/download/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第１会議室
+    fee: 1700
+    capacity: 10
+    slot_fees:
+      午後: 730
+      夜間: 970
+    source: https://sfc-kawasaki.jp/hole-kaigishitsu/
+    fee_source: https://sfc-kawasaki.jp/wp-content/uploads/2023/03/20230316_SisetuRyokinKaitei.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 他の利用者に迷惑となる音出し・大音量の催しは不可。小さな電子音の扱いは未確認。
+    sound_source: https://sfc-kawasaki.jp/hole-kaigishitsu/download/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第２会議室
+    fee: 1700
+    capacity: 10
+    slot_fees:
+      午後: 730
+      夜間: 970
+    source: https://sfc-kawasaki.jp/hole-kaigishitsu/
+    fee_source: https://sfc-kawasaki.jp/wp-content/uploads/2023/03/20230316_SisetuRyokinKaitei.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 他の利用者に迷惑となる音出し・大音量の催しは不可。小さな電子音の扱いは未確認。
+    sound_source: https://sfc-kawasaki.jp/hole-kaigishitsu/download/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+- ward: 川崎区
+  kan: 老人福祉
+  rooms:
+  - name: 多目的室
+    fee: 1930
+    capacity: 24
+    slot_fees:
+      午後: 810
+      夜間: 1120
+    source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    day_policy: sundays_and_holidays_except_keiro
+    usage_note: 午後は日曜・祝日のみ（敬老の日を除く）。13～16時／17～21時。小さな電子音の扱いは未確認。
+    sound_source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 工作室
+    capacity: 13
+    fee: 1420
+    slot_fees:
+      午後: 610
+      夜間: 810
+    source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    day_policy: sundays_and_holidays_except_keiro
+    usage_note: 午後は日曜・祝日のみ（敬老の日を除く）。13～16時／17～21時。小さな電子音の扱いは未確認。
+    sound_source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 料理室
+    capacity: 16
+    fee: 2130
+    slot_fees:
+      午後: 910
+      夜間: 1220
+    source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    day_policy: sundays_and_holidays_except_keiro
+    usage_note: 午後は日曜・祝日のみ（敬老の日を除く）。13～16時／17～21時。小さな電子音の扱いは未確認。
+    sound_source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 和室
+    capacity: 14
+    fee: 960
+    slot_fees:
+      午後: 400
+      夜間: 560
+    source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    day_policy: sundays_and_holidays_except_keiro
+    usage_note: 午後は日曜・祝日のみ（敬老の日を除く）。13～16時／17～21時。小さな電子音の扱いは未確認。
+    sound_source: https://csw-kawasaki.or.jp/rousen/kawasaki-center/kawasaki-koryu/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+- ward: 川崎区
+  kan: 川崎マリエン
+  rooms:
+  - name: 第２会議室
+    fee: 2920
+    capacity: 14
+    slot_fees:
+      午後: 1460
+      夜間: 1460
+    source: https://www.kawasakiport.or.jp/indoor/conference.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 通常の土日祝料金。会議・研修目的の減免適用時は半額。
+    usage_note: 小さな電子音の扱いは未確認。
+    sound_source: https://www.kawasakiport.or.jp/indoor/conference.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第３会議室
+    fee: 2920
+    capacity: 14
+    slot_fees:
+      午後: 1460
+      夜間: 1460
+    source: https://www.kawasakiport.or.jp/indoor/conference.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 通常の土日祝料金。会議・研修目的の減免適用時は半額。
+    usage_note: 小さな電子音の扱いは未確認。
+    sound_source: https://www.kawasakiport.or.jp/indoor/conference.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 和室
+    fee: 2190
+    capacity: 20
+    slot_fees:
+      午後: 1095
+      夜間: 1095
+    source: https://www.kawasakiport.or.jp/indoor/conference.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 合計は土日祝の減免適用時の参考額。施設で最終金額を確認。
+    normal_fee: 4380
+    conditional_reason: 会議・研修の半額減免が認められる場合のみ4,000円以内。今回の活動への適用は要確認。
+    usage_note: 小さな電子音の扱いは未確認。
+    sound_source: https://www.kawasakiport.or.jp/indoor/conference.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 利用目的・料金の条件付き
+  - name: 第１研修室
+    fee: 3040
+    capacity: 45
+    slot_fees:
+      午後: 1520
+      夜間: 1520
+    source: https://www.kawasakiport.or.jp/indoor/conference.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 合計は土日祝の減免適用時の参考額。施設で最終金額を確認。
+    normal_fee: 6080
+    conditional_reason: 会議・研修の半額減免が認められる場合のみ4,000円以内。今回の活動への適用は要確認。
+    capacity_note: 現行施設ページ45人を採用。2023年利用案内PDFには51人の記載があり、45人を超える利用は要確認。
+    usage_note: 備付音響設備は区画なし利用時のみ。小さな電子音の扱いは未確認。
+    sound_source: https://www.kawasakiport.or.jp/indoor/conference.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 利用目的・料金の条件付き
+  - name: 第４会議室
+    capacity: 10
+    fee: 2920
+    slot_fees:
+      午後: 1460
+      夜間: 1460
+    source: https://www.kawasakiport.or.jp/indoor/conference.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 通常の土日祝料金。会議・研修目的の減免適用時は半額。
+    usage_note: 小さな電子音の扱いは未確認。
+    sound_source: https://www.kawasakiport.or.jp/indoor/conference.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+- ward: 幸区
+  kan: 産業振興会館
+  rooms:
+  - name: 第１研修室
+    fee: 3040
+    capacity: 24
+    slot_fees:
+      午後: 1520
+      夜間: 1520
+    source: https://kawasaki-sanshinkaikan.jp/kaikan/ryoukin/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 騒音等で著しい迷惑を及ぼす利用は不可。会費等の徴収は営利加算の適用要確認。小さな電子音の扱いは未確認。
+    sound_source: https://kawasaki-sanshinkaikan.jp/kaikan/chuui/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第２会議室
+    fee: 3460
+    capacity: 22
+    slot_fees:
+      午後: 1730
+      夜間: 1730
+    source: https://kawasaki-sanshinkaikan.jp/kaikan/ryoukin/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 騒音等で著しい迷惑を及ぼす利用は不可。会費等の徴収は営利加算の適用要確認。小さな電子音の扱いは未確認。
+    sound_source: https://kawasaki-sanshinkaikan.jp/kaikan/chuui/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第３会議室
+    fee: 3460
+    capacity: 22
+    slot_fees:
+      午後: 1730
+      夜間: 1730
+    source: https://kawasaki-sanshinkaikan.jp/kaikan/ryoukin/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 騒音等で著しい迷惑を及ぼす利用は不可。会費等の徴収は営利加算の適用要確認。小さな電子音の扱いは未確認。
+    sound_source: https://kawasaki-sanshinkaikan.jp/kaikan/chuui/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 和室
+    fee: 3860
+    capacity: 18
+    slot_fees:
+      午後: 1930
+      夜間: 1930
+    source: https://kawasaki-sanshinkaikan.jp/kaikan/ryoukin/
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 騒音等で著しい迷惑を及ぼす利用は不可。会費等の徴収は営利加算の適用要確認。小さな電子音の扱いは未確認。
+    sound_source: https://kawasaki-sanshinkaikan.jp/kaikan/chuui/
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+- ward: 中原区
+  kan: 平和館
+  rooms:
+  - name: 第１会議室
+    fee: 3040
+    capacity: 16
+    slot_fees:
+      午後: 1340
+      夜間: 1700
+    source: https://www.city.kawasaki.jp/250/page/0000003997.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 音響楽器等の使用に制限あり。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/250/page/0000145649.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音響楽器の条件確認
+  - name: 第２会議室
+    fee: 3770
+    capacity: 24
+    slot_fees:
+      午後: 1580
+      夜間: 2190
+    source: https://www.city.kawasaki.jp/250/page/0000003997.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 音響楽器等の使用に制限あり。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/250/page/0000145649.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音響楽器の条件確認
+  - name: 研修室
+    fee: 1700
+    capacity: 12
+    slot_fees:
+      午後: 730
+      夜間: 970
+    source: https://www.city.kawasaki.jp/250/page/0000003997.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 音響楽器等の使用に制限あり。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/250/page/0000145649.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音響楽器の条件確認
+  - name: 第３会議室
+    capacity: 8
+    fee: 1450
+    slot_fees:
+      午後: 600
+      夜間: 850
+    source: https://www.city.kawasaki.jp/250/page/0000003997.html
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 音響楽器等の使用に制限あり。小さな電子音の扱いは未確認。
+    sound_source: https://www.city.kawasaki.jp/250/page/0000145649.html
+    sound_checked_on: '2026-09-30'
+    sound_review: 音響楽器の条件確認
+- ward: 中原区
+  kan: 国際交流センター
+  rooms:
+  - name: 第６会議室
+    fee: 1080
+    capacity: 18
+    slot_fees:
+      午後: 480
+      夜間: 600
+    source: https://www.kian.or.jp/kic/001.shtml
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 他の利用者に迷惑をかけるおそれのある利用は不可。小さな電子音の扱いは未確認。
+    sound_source: https://www.kian.or.jp/kic/008.shtml
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 交流サロン
+    fee: 2430
+    capacity: 30
+    slot_fees:
+      午後: 1090
+      夜間: 1340
+    source: https://www.kian.or.jp/kic/001.shtml
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    usage_note: 他の利用者に迷惑をかけるおそれのある利用は不可。小さな電子音の扱いは未確認。
+    sound_source: https://www.kian.or.jp/kic/008.shtml
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
+  - name: 第７会議室（和室）
+    capacity: 10
+    fee: 840
+    slot_fees:
+      午後: 360
+      夜間: 480
+    source: https://www.kian.or.jp/kic/001.shtml
+    fee_source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+    checked_on: '2026-09-30'
+    fee_note: 土日祝の室料。備品・延長・営利利用等は別途。
+    aliases:
+    - 第７会議室
+    - 第７会議室・和室
+    usage_note: 他の利用者に迷惑をかけるおそれのある利用は不可。小さな電子音の扱いは未確認。
+    sound_source: https://www.kian.or.jp/kic/008.shtml
+    sound_checked_on: '2026-09-30'
+    sound_review: 禁止明記なし・許可未確認
 notify_filled: false
-
-# 何日先まで確認するか（市民館系は4か月前から空き確認可能。日数を増やすと実行時間が伸びます）
 horizon_days: 70
-
-# 通知量を抑える設定。必要な場合だけ @here に変更（分割通知でも最初の1通のみ）。
-discord_mention: ""
-# 一時的な表示欠落で満室→再空きにならないよう、2回の確認で空き終了を確定。
+discord_mention: ''
 closed_confirmations: 2
-# 初回・設定変更・72時間を超える停止後は、現在の空きを通知せず基準登録。
 baseline_after_hours: 72
+max_total_fee: 4000
+budget_slots:
+- 午後
+- 夜間
+audit_exclusions:
+- facility: 幸市民館
+  name: 体育室
+  fee: 2016
+  reason: 2026-09-01～2028年10月以降まで改修休館中。再開日・定員は再開案内で確認。
+  source: https://www.city.kawasaki.jp/saiwai/page/0000189768.html
+- facility: 東海道かわさき宿交流館
+  name: 談話室
+  fee: 1450
+  reason: 音響等の関係でふれあいネット予約不可。直接問い合わせの施設。
+  source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
