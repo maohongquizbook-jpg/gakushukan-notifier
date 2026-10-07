@@ -54,6 +54,7 @@ TIME_SLOT_WORDS = ("午前", "午後", "夜間")
 WEEKDAY_JA = "月火水木金土日"
 JST = ZoneInfo("Asia/Tokyo")
 STATE_VERSION = 2
+CHIIKI_RULES_REVISION = "2026-10-07"
 
 
 def now_jst():
@@ -69,6 +70,17 @@ def today_jst():
 def load_config(path=None) -> dict:
     with open(path or CONFIG_PATH, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+    if "/chiiki/web/" in cfg.get("base_url", ""):
+        if (cfg.get("facility_rules_revision") != CHIIKI_RULES_REVISION
+                or not cfg.get("room_catalog")):
+            raise ValueError(
+                "地域センターの利用条件が旧版です。monitor.pyとconfig_chiiki.yamlを"
+                "同じ修正版で上書きしてください。施設確認済みの除外条件を適用できないため通知を停止します。")
+        eligible = [e for e in cfg["room_catalog"]
+                    if e.get("monitor", True) and not e.get("excluded_reason")
+                    and e.get("user_confirmed_use") not in {"not_allowed", "joint_only"}
+                    and e.get("fee", float("inf")) <= cfg.get("max_total_fee", float("inf"))]
+        print(f"[INFO] 地域センター利用条件版: {CHIIKI_RULES_REVISION} / 通知候補{len(eligible)}室 / 設定: {Path(path or CONFIG_PATH).name}")
     cfg.setdefault("required_slots", ["午後", "夜間"])
     cfg.setdefault("check_interval_min", 5)
     cfg.setdefault("active_hours", [7, 23])
@@ -705,11 +717,15 @@ def find_matched(groups: dict, cfg: dict) -> dict:
                 continue
             if entry.get("excluded_reason"):
                 continue
+            if entry.get("user_confirmed_use") in {"not_allowed", "joint_only"}:
+                # 個別確認は一般的な公開案内より優先。一体利用の部屋を
+                # 片側だけの料金・空きで通知することも認めない。
+                continue
             annotate_room(g, entry, cfg)
             if cfg.get("max_total_fee") is not None:
                 if g.get("budget_fee") is None or g["budget_fee"] > cfg["max_total_fee"]:
                     continue
-        if allowlist:
+        if allowlist and not catalog:
             entry = match_allowlist(g["room"], allowlist)
             if entry is None:
                 continue
