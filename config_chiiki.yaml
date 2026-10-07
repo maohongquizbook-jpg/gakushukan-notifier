@@ -1,4 +1,4 @@
-# 地域センター：4枠合計6,000円以内、必須は午後2＋夜間1。2026-09-30利用条件再点検済み。
+# 地域センター利用条件版2026-10-07。利用者の施設確認結果を優先。monitor.pyと同時に差し替えてください。
 discord_webhook_url: ''
 base_url: https://www.shinjuku.eprs.jp/chiiki/web/
 state_file: state_chiiki.json
@@ -83,10 +83,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 5800
-  usage_note: 楽器演奏・合唱・演劇等は不可。小さな電子音の扱いは未確認。
+  usage_note: 音が響くため、今回の電子音を使う活動は利用不可（利用者が施設に確認）。
   sound_source: https://ycc.tokyo/pg49.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 音が響くため、今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 四谷地域センター
   name: 集会室3
   capacity: 20
@@ -100,10 +106,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 5400
-  usage_note: 楽器演奏・合唱・演劇等は不可。小さな電子音の扱いは未確認。
+  usage_note: 音が響くため、今回の電子音を使う活動は利用不可（利用者が施設に確認）。
   sound_source: https://ycc.tokyo/pg49.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 音が響くため、今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 四谷地域センター
   name: 集会室4
   capacity: 30
@@ -183,12 +195,14 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 2600
-  blocked_reason: 公式案内で茶道専用。茶道以外の活動には利用できません。
   restriction_origin: official_website
   usage_note: 料金・定員条件だけでは候補にできない部屋です。
   sound_source: https://ycc.tokyo/pg49.html
   sound_checked_on: '2026-09-30'
   sound_review: 用途不適合
+  excluded_reason: 公式案内で茶道専用。茶道以外の活動には利用できません。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 四谷地域センター
   name: 多目的ホール
   capacity: 100
@@ -215,6 +229,20 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 7200
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  excluded_reason: 隣室への音漏れのためバラA＋バラBの一体利用が必須。両室の午後1～夜間2合計14,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id001
+  - バラA
+  - バラB
+  joint_use_total_fee: 14400
+  joint_use_required_fee: 7200
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
+  monitor: false
 - facility: 牛込箪笥地域センター
   name: バラB
   capacity: 30
@@ -228,6 +256,18 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 7200
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  excluded_reason: 隣室への音漏れのためバラA＋バラBの一体利用が必須。両室の午後1～夜間2合計14,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id001
+  joint_use_total_fee: 14400
+  joint_use_required_fee: 7200
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
+  monitor: false
 - facility: 牛込箪笥地域センター
   name: トマト
   capacity: 25
@@ -241,6 +281,15 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 7600
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  excluded_reason: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  usage_note: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  monitor: false
 - facility: 牛込箪笥地域センター
   name: なつめ
   capacity: 12
@@ -254,10 +303,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 3000
-  usage_note: 防音設備なし。楽器や人数によって利用不可の場合あり。小さな電子音の扱いは未確認。
+  usage_note: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
   sound_source: https://www.ushigometansu.com/qa.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 牛込箪笥地域センター
   name: つつじ
   capacity: 25
@@ -271,10 +326,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4000
-  usage_note: 防音設備なし。楽器や人数によって利用不可の場合あり。小さな電子音の扱いは未確認。
+  usage_note: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
   sound_source: https://www.ushigometansu.com/qa.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 牛込箪笥地域センター
   name: コンドル
   capacity: 100
@@ -288,6 +349,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 18000
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 牛込箪笥地域センター
   name: 菊
   capacity: 40
@@ -300,8 +367,20 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   fee: 11600
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  funeral_priority: true
+  funeral_note: 葬儀優先。葬儀が入ると一般利用の許可が取り消されます。取消は予約前日までに電話連絡。支払済み室料は所定の返還手続きが必要。
+  funeral_sources: &id002
+  - https://www.ushigometansu.com/howtouse.html
+  - https://www.ushigometansu.com/facilities/b1suisen.html
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。葬儀が入ると一般利用の許可が取り消されます。取消は予約前日までに電話連絡。支払済み室料は所定の返還手続きが必要。
 - facility: 牛込箪笥地域センター
   name: 百合
   capacity: 40
@@ -314,8 +393,18 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   fee: 11600
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  funeral_priority: true
+  funeral_note: 葬儀優先。葬儀が入ると一般利用の許可が取り消されます。取消は予約前日までに電話連絡。支払済み室料は所定の返還手続きが必要。
+  funeral_sources: *id002
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。葬儀が入ると一般利用の許可が取り消されます。取消は予約前日までに電話連絡。支払済み室料は所定の返還手続きが必要。
 - facility: 牛込箪笥地域センター
   name: 水仙
   capacity: 10
@@ -328,11 +417,19 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=2
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  usage_note: 防音設備なし。楽器や人数によって利用不可の場合あり。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   fee: 2200
   sound_source: https://www.ushigometansu.com/qa.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  funeral_priority: true
+  funeral_note: 葬儀優先。葬儀が入ると一般利用の許可が取り消されます。取消は予約前日までに電話連絡。支払済み室料は所定の返還手続きが必要。
+  funeral_sources: *id002
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。葬儀が入ると一般利用の許可が取り消されます。取消は予約前日までに電話連絡。支払済み室料は所定の返還手続きが必要。
 - facility: 榎町地域センター
   name: 多目的ホール
   capacity: 120
@@ -346,6 +443,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 16600
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 榎町地域センター
   name: 調理室
   capacity: 15
@@ -359,10 +462,13 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4800
-  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   sound_source: https://enoki-chiiki.tokyo/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
 - facility: 榎町地域センター
   name: 大会議室A
   capacity: 21
@@ -376,10 +482,21 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4000
-  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://enoki-chiiki.tokyo/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため大会議室A＋大会議室Bの一体利用が必須。両室の午後1～夜間2合計8,000円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id003
+  - 大会議室A
+  - 大会議室B
+  joint_use_total_fee: 8000
+  joint_use_required_fee: 4000
+  monitor: false
 - facility: 榎町地域センター
   name: 大会議室B
   capacity: 21
@@ -393,10 +510,19 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4000
-  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://enoki-chiiki.tokyo/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため大会議室A＋大会議室Bの一体利用が必須。両室の午後1～夜間2合計8,000円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id003
+  joint_use_total_fee: 8000
+  joint_use_required_fee: 4000
+  monitor: false
 - facility: 榎町地域センター
   name: 工芸美術室
   capacity: 24
@@ -410,10 +536,13 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 5400
-  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   sound_source: https://enoki-chiiki.tokyo/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
 - facility: 榎町地域センター
   name: 軽音楽室
   capacity: 18
@@ -427,10 +556,13 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 3600
-  usage_note: 軽音楽室は一部楽器利用可。他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   sound_source: https://enoki-chiiki.tokyo/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
 - facility: 榎町地域センター
   name: 和室
   capacity: 30
@@ -444,6 +576,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 6200
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 榎町地域センター
   name: 小会議室
   capacity: 12
@@ -457,10 +595,13 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 2600
-  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   sound_source: https://enoki-chiiki.tokyo/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
 - facility: 榎町地域センター
   name: 地下ホールA
   capacity: 54
@@ -475,8 +616,19 @@ room_catalog:
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   aliases:
   - ホールA
-  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   fee: 7600
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  funeral_priority: true
+  funeral_note: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
+  funeral_sources: &id004
+  - https://enoki-chiiki.tokyo/facilities.html
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
 - facility: 榎町地域センター
   name: 地下ホールB
   capacity: 32
@@ -491,11 +643,19 @@ room_catalog:
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   aliases:
   - ホールB
-  usage_note: 他者に迷惑を及ぼす大声・大きな音は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   fee: 4800
   sound_source: https://enoki-chiiki.tokyo/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  funeral_priority: true
+  funeral_note: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
+  funeral_sources: *id004
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
 - facility: 若松地域センター
   name: 第1集会室
   capacity: 70
@@ -522,6 +682,15 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 6200
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  excluded_reason: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  usage_note: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  monitor: false
 - facility: 若松地域センター
   name: 第2集会室A
   capacity: 24
@@ -534,13 +703,22 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 4000
   restriction_origin: user_confirmed
-  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://wakamatsucenter.com/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 利用不可（利用者の確認結果）
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  excluded_reason: 隣室への音漏れのため第2集会室A＋第2集会室Bの一体利用が必須。両室の午後1～夜間2合計8,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id005
+  - 第2集会室A
+  - 第2集会室B
+  joint_use_total_fee: 8400
+  joint_use_required_fee: 4200
+  monitor: false
 - facility: 若松地域センター
   name: 第2集会室B
   capacity: 24
@@ -553,13 +731,20 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 4400
   restriction_origin: user_confirmed
-  usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://wakamatsucenter.com/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 利用不可（利用者の確認結果）
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  excluded_reason: 隣室への音漏れのため第2集会室A＋第2集会室Bの一体利用が必須。両室の午後1～夜間2合計8,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id005
+  joint_use_total_fee: 8400
+  joint_use_required_fee: 4200
+  monitor: false
 - facility: 若松地域センター
   name: はなみずき
   capacity: 20
@@ -573,10 +758,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4400
-  usage_note: 公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  usage_note: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
   sound_source: https://wakamatsucenter.com/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 若松地域センター
   name: つばき
   capacity: 10
@@ -590,11 +781,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 3600
-  conditional_reason: 会議・打合せ等は他の部屋が空いていない場合に限る。通常の空室判定だけでは利用条件を確認できません。
-  usage_note: 小さな電子音の扱いは未確認。
+  usage_note: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
   sound_source: https://wakamatsucenter.com/facilities.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 他室の空き状況による条件付き
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 今回の電子音を使う活動は利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 若松地域センター
   name: スタジオYM
   capacity: 15
@@ -633,8 +829,19 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   fee: 9400
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  funeral_priority: true
+  funeral_note: 葬儀が入ると予約は取消。取消の場合は予約前日までに施設から連絡があります。
+  funeral_sources: &id006
+  - https://wakamatsucenter.com/facilities.html
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀が入ると予約は取消。取消の場合は予約前日までに施設から連絡があります。
 - facility: 若松地域センター
   name: B1集会室
   capacity: 48
@@ -647,8 +854,18 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=4
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   fee: 6200
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  funeral_priority: true
+  funeral_note: 葬儀が入ると予約は取消。取消の場合は予約前日までに施設から連絡があります。
+  funeral_sources: *id006
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀が入ると予約は取消。取消の場合は予約前日までに施設から連絡があります。
 - facility: 大久保地域センター
   name: 会議室A
   capacity: 60
@@ -662,6 +879,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 8000
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 大久保地域センター
   name: 調理工作室
   capacity: 30
@@ -675,10 +898,13 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 5400
-  usage_note: 楽器の使用は要確認。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   sound_source: https://ookubocc.tokyo/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
 - facility: 大久保地域センター
   name: 和室
   capacity: 56
@@ -692,6 +918,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 8000
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 大久保地域センター
   name: 会議室B
   capacity: 30
@@ -705,10 +937,13 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 3600
-  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   sound_source: https://ookubocc.tokyo/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
 - facility: 大久保地域センター
   name: 会議室C
   capacity: 24
@@ -722,10 +957,13 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 3000
-  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
   sound_source: https://ookubocc.tokyo/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
 - facility: 大久保地域センター
   name: 多目的ホール
   capacity: 120
@@ -739,6 +977,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 18000
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 戸塚地域センター
   name: 多目的ホール
   capacity: 180
@@ -816,10 +1060,21 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 5400
-  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。 備付音響設備は会議室1・2の一体利用時のみ。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://www.tcc-tokyo.net/facilities/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため会議室1＋会議室2の一体利用が必須。両室の午後1～夜間2合計8,000円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id007
+  - 会議室1
+  - 会議室2
+  joint_use_total_fee: 8000
+  joint_use_required_fee: 4000
+  monitor: false
 - facility: 戸塚地域センター
   name: 会議室2
   capacity: 18
@@ -833,10 +1088,19 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 2600
-  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。 備付音響設備は会議室1・2の一体利用時のみ。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://www.tcc-tokyo.net/facilities/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため会議室1＋会議室2の一体利用が必須。両室の午後1～夜間2合計8,000円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id007
+  joint_use_total_fee: 8000
+  joint_use_required_fee: 4000
+  monitor: false
 - facility: 戸塚地域センター
   name: 会議室3
   capacity: 12
@@ -850,10 +1114,21 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 2200
-  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://www.tcc-tokyo.net/facilities/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため会議室3＋調理・手工芸室の一体利用が必須。両室の午後1～夜間2合計6,600円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id008
+  - 会議室3
+  - 調理・手工芸室
+  joint_use_total_fee: 6600
+  joint_use_required_fee: 3300
+  monitor: false
 - facility: 戸塚地域センター
   name: 調理・手工芸室
   capacity: 12
@@ -867,10 +1142,19 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4400
-  usage_note: 楽器類・大きな音や振動を伴う使用は不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://www.tcc-tokyo.net/facilities/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため会議室3＋調理・手工芸室の一体利用が必須。両室の午後1～夜間2合計6,600円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id008
+  joint_use_total_fee: 6600
+  joint_use_required_fee: 3300
+  monitor: false
 - facility: 戸塚地域センター
   name: 集会室1
   capacity: 39
@@ -885,6 +1169,13 @@ room_catalog:
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   usage_note: 葬儀優先の区画。受付期間・利用条件は施設へ確認。
   fee: 6400
+  funeral_priority: true
+  funeral_note: 葬儀優先。葬儀時は地下集会室1・2・3を一体利用。土曜15:15～21:45と日曜9:00～15:00は葬儀利用不可。土曜の午後1は葬儀の片付け、日曜の午後2は葬儀準備に使われる場合があります。
+  funeral_sources: &id009
+  - https://www.tcc-tokyo.net/facilities/1B.html
+  - https://www.tcc-tokyo.net/sogi.html
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。葬儀時は地下集会室1・2・3を一体利用。土曜15:15～21:45と日曜9:00～15:00は葬儀利用不可。土曜の午後1は葬儀の片付け、日曜の午後2は葬儀準備に使われる場合があります。
 - facility: 戸塚地域センター
   name: 集会室2
   capacity: 16
@@ -902,6 +1193,11 @@ room_catalog:
   sound_source: https://www.tcc-tokyo.net/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 禁止明記なし・許可未確認
+  funeral_priority: true
+  funeral_note: 葬儀優先。葬儀時は地下集会室1・2・3を一体利用。土曜15:15～21:45と日曜9:00～15:00は葬儀利用不可。土曜の午後1は葬儀の片付け、日曜の午後2は葬儀準備に使われる場合があります。
+  funeral_sources: *id009
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。葬儀時は地下集会室1・2・3を一体利用。土曜15:15～21:45と日曜9:00～15:00は葬儀利用不可。土曜の午後1は葬儀の片付け、日曜の午後2は葬儀準備に使われる場合があります。
 - facility: 戸塚地域センター
   name: 集会室3
   capacity: 6
@@ -919,6 +1215,11 @@ room_catalog:
   sound_source: https://www.tcc-tokyo.net/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 禁止明記なし・許可未確認
+  funeral_priority: true
+  funeral_note: 葬儀優先。葬儀時は地下集会室1・2・3を一体利用。土曜15:15～21:45と日曜9:00～15:00は葬儀利用不可。土曜の午後1は葬儀の片付け、日曜の午後2は葬儀準備に使われる場合があります。
+  funeral_sources: *id009
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。葬儀時は地下集会室1・2・3を一体利用。土曜15:15～21:45と日曜9:00～15:00は葬儀利用不可。土曜の午後1は葬儀の片付け、日曜の午後2は葬儀準備に使われる場合があります。
 - facility: 落合第一地域センター
   name: 4Fホール
   capacity: 150
@@ -960,6 +1261,20 @@ room_catalog:
   aliases:
   - 第1集会室A
   fee: 10200
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  excluded_reason: 隣室への音漏れのため第一集会室A＋第一集会室Bの一体利用が必須。両室の午後1～夜間2合計17,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id010
+  - 第一集会室A
+  - 第一集会室B
+  joint_use_total_fee: 17400
+  joint_use_required_fee: 8700
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
+  monitor: false
 - facility: 落合第一地域センター
   name: 第一集会室B
   capacity: 36
@@ -975,6 +1290,18 @@ room_catalog:
   aliases:
   - 第1集会室B
   fee: 7200
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  excluded_reason: 隣室への音漏れのため第一集会室A＋第一集会室Bの一体利用が必須。両室の午後1～夜間2合計17,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id010
+  joint_use_total_fee: 17400
+  joint_use_required_fee: 8700
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
+  monitor: false
 - facility: 落合第一地域センター
   name: 第二集会室
   capacity: 24
@@ -1021,11 +1348,28 @@ room_catalog:
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   aliases:
   - ホールA
-  usage_note: 葬儀優先のため取消となる場合あり。公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   fee: 5400
   sound_source: https://www.ochiai1center.com/facility/
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのためB1ホールA＋B1ホールBの一体利用が必須。両室の午後1～夜間2合計10,200円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id011
+  - B1ホールA
+  - B1ホールB
+  joint_use_total_fee: 10200
+  joint_use_required_fee: 5100
+  funeral_priority: true
+  funeral_note: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで（前日休館の場合はその前日）。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
+  funeral_sources: &id012
+  - https://www.ochiai1center.com/facility/
+  - https://www.ochiai1center.com/guide/
+  funeral_checked_on: '2026-10-04'
+  monitor: false
 - facility: 落合第一地域センター
   name: B1ホールB
   capacity: 24
@@ -1040,11 +1384,24 @@ room_catalog:
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   aliases:
   - ホールB
-  usage_note: 葬儀優先のため取消となる場合あり。公開案内で小さな電子音の一律禁止は記載未発見。今回の機器・音量の利用可否は未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   fee: 4800
   sound_source: https://www.ochiai1center.com/facility/
-  sound_checked_on: '2026-09-30'
-  sound_review: 禁止明記なし・許可未確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのためB1ホールA＋B1ホールBの一体利用が必須。両室の午後1～夜間2合計10,200円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id011
+  joint_use_total_fee: 10200
+  joint_use_required_fee: 5100
+  funeral_priority: true
+  funeral_note: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで（前日休館の場合はその前日）。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
+  funeral_sources: *id012
+  funeral_checked_on: '2026-10-04'
+  monitor: false
 - facility: 落合第一地域センター
   name: 和室控室
   capacity: 12
@@ -1062,6 +1419,11 @@ room_catalog:
   sound_source: https://www.ochiai1center.com/facility/
   sound_checked_on: '2026-09-30'
   sound_review: 禁止明記なし・許可未確認
+  funeral_priority: true
+  funeral_note: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで（前日休館の場合はその前日）。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
+  funeral_sources: *id012
+  funeral_checked_on: '2026-10-04'
+  conditional_reason: 葬儀優先。一般利用の予約後も葬儀による変更・取消の可能性があります。葬儀の受付は原則前日17時まで（前日休館の場合はその前日）。取消連絡期限の明記は今回の確認範囲では見つかりませんでした。
 - facility: 落合第二地域センター
   name: 多目的ホール
   capacity: 100
@@ -1074,8 +1436,10 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 20200
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 調理室
   capacity: 12
@@ -1088,13 +1452,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 3600
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 工芸美術室
   capacity: 12
@@ -1107,13 +1473,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 3600
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 音楽室
   capacity: 18
@@ -1126,13 +1494,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 4000
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 和室
   capacity: 30
@@ -1145,13 +1515,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 5000
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 茶室
   capacity: 12
@@ -1164,13 +1536,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 1800
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 小会議室
   capacity: 18
@@ -1183,13 +1557,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 4000
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 大会議室A
   capacity: 24
@@ -1202,13 +1578,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 4800
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 落合第二地域センター
   name: 大会議室B
   capacity: 24
@@ -1221,13 +1599,15 @@ room_catalog:
   source: https://www.city.shinjuku.lg.jp/content/000423351.pdf#page=8
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
-  blocked_reason: 音出し不可の為（利用者から施設へ確認済み）
   fee: 4600
   restriction_origin: user_confirmed
   usage_note: 電子音を使う今回の活動について、利用者が施設に確認した結果を優先。
   sound_source: https://www.ochiai2center.com/facilities/
   sound_checked_on: '2026-09-30'
   sound_review: 利用不可（利用者の確認結果）
+  excluded_reason: 音出し不可の為（利用者から施設へ確認済み）
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 柏木地域センター
   name: 会議室1A
   capacity: 24
@@ -1241,6 +1621,15 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 7200
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  excluded_reason: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  usage_note: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  monitor: false
 - facility: 柏木地域センター
   name: 会議室1B
   capacity: 12
@@ -1254,12 +1643,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4000
-  blocked_reason: 窓がなく換気できないため、公式案内で当面の単独利用を中止。1Aとの一体利用は4枠11,200円で予算超過。
-  restriction_origin: official_website
-  usage_note: 単独で空き表示が出ても利用可能とは扱えません。
+  restriction_origin: user_confirmed
+  usage_note: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
   sound_source: https://www.kashiwagicc.com/施設のご案内/
-  sound_checked_on: '2026-09-30'
-  sound_review: 単独利用休止
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  excluded_reason: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 柏木地域センター
   name: 調理室
   capacity: 32
@@ -1273,6 +1666,15 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 11200
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  excluded_reason: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  usage_note: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  monitor: false
 - facility: 柏木地域センター
   name: 和室
   capacity: 20
@@ -1286,10 +1688,16 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 5800
-  usage_note: 和室は合唱・楽器練習等不可。小さな電子音の扱いは未確認。
+  usage_note: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
   sound_source: https://www.kashiwagicc.com/施設のご案内/
-  sound_checked_on: '2026-09-30'
-  sound_review: 楽器等の制限・電子音要確認
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  monitor: false
 - facility: 柏木地域センター
   name: 会議室2
   capacity: 30
@@ -1303,6 +1711,15 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 9400
+  user_confirmed_use: not_allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用不可（利用者確認）
+  excluded_reason: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  exclusion_kind: activity_not_allowed
+  usage_note: 今回の電子音を使う活動は音楽室・多目的ホール以外では利用不可（利用者が施設に確認）。
+  monitor: false
 - facility: 柏木地域センター
   name: 音楽室
   capacity: 15
@@ -1316,6 +1733,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 7600
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 柏木地域センター
   name: 多目的ホール
   capacity: 120
@@ -1329,6 +1752,12 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 21000
+  user_confirmed_use: allowed
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  sound_checked_on: '2026-10-04'
+  sound_review: 今回の活動は利用者が施設に確認済み
+  usage_note: 今回の小さな電子音を使う活動は利用可（利用者による施設確認、2026-10-04）。
 - facility: 角筈地域センター
   name: 会議室A
   capacity: 30
@@ -1342,10 +1771,21 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 5400
-  usage_note: 区公式案内を確認。運営サイトの独自の音出し規則は本文取得できず未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://www.city.shinjuku.lg.jp/soshiki/tsunohazu01_002048.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 独自規則の確認未完了
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため会議室A＋会議室Bの一体利用が必須。両室の午後1～夜間2合計9,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: &id013
+  - 会議室A
+  - 会議室B
+  joint_use_total_fee: 9400
+  joint_use_required_fee: 4700
+  monitor: false
 - facility: 角筈地域センター
   name: 会議室B
   capacity: 24
@@ -1359,10 +1799,19 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 4000
-  usage_note: 区公式案内を確認。運営サイトの独自の音出し規則は本文取得できず未確認。
+  usage_note: 今回の活動は一体利用時のみ可。片側だけの空きは通知しません。
   sound_source: https://www.city.shinjuku.lg.jp/soshiki/tsunohazu01_002048.html
-  sound_checked_on: '2026-09-30'
-  sound_review: 独自規則の確認未完了
+  sound_checked_on: '2026-10-04'
+  sound_review: 隣室への音漏れのため一体利用のみ（利用者確認）
+  user_confirmed_use: joint_only
+  user_confirmation_date: '2026-10-04'
+  restriction_origin: user_confirmed
+  excluded_reason: 隣室への音漏れのため会議室A＋会議室Bの一体利用が必須。両室の午後1～夜間2合計9,400円で上限6,000円を超えるため対象外。
+  exclusion_kind: joint_use_over_budget
+  joint_use_rooms: *id013
+  joint_use_total_fee: 9400
+  joint_use_required_fee: 4700
+  monitor: false
 - facility: 角筈地域センター
   name: クッキングルーム
   capacity: 42
@@ -1407,6 +1856,7 @@ room_catalog:
   aliases:
   - 和室Ⅱ
   excluded_reason: 昼間は談話室のため、午後2を貸室として予約できない。
+  monitor: false
 - facility: 角筈地域センター
   name: レクリエーションホール
   capacity: 90
@@ -1420,3 +1870,126 @@ room_catalog:
   checked_on: '2026-09-29'
   fee_note: 一般団体の室料。備品・調理設備等は別途。
   fee: 17000
+notification_policy_note: 2026-10-04利用者確認を反映。地域センターの利用不可室は通知から除外。一体利用指定8組は全て4枠合計6,000円超で除外。葬儀優先室は条件確認欄。一体利用室を将来対象に戻す場合は、両室の同日時の空きを確認する処理と料金・定員の再確認が必要。
+facility_rules_revision: '2026-10-07'
+room_allowlist:
+- keywords:
+  - 四谷地域センター
+  - 和室A
+  capacity: 15
+  fee: 1800
+- keywords:
+  - 四谷地域センター
+  - 和室（目的利用A）
+  capacity: 15
+  fee: 1800
+- keywords:
+  - 四谷地域センター
+  - 和室B
+  capacity: 15
+  fee: 1800
+- keywords:
+  - 四谷地域センター
+  - 和室（目的利用B）
+  capacity: 15
+  fee: 1800
+- keywords:
+  - 牛込箪笥地域センター
+  - 水仙
+  capacity: 10
+  fee: 2200
+- keywords:
+  - 榎町地域センター
+  - 調理室
+  capacity: 15
+  fee: 4800
+- keywords:
+  - 榎町地域センター
+  - 工芸美術室
+  capacity: 24
+  fee: 5400
+- keywords:
+  - 榎町地域センター
+  - 軽音楽室
+  capacity: 18
+  fee: 3600
+- keywords:
+  - 榎町地域センター
+  - 小会議室
+  capacity: 12
+  fee: 2600
+- keywords:
+  - 榎町地域センター
+  - 地下ホールB
+  capacity: 32
+  fee: 4800
+- keywords:
+  - 榎町地域センター
+  - ホールB
+  capacity: 32
+  fee: 4800
+- keywords:
+  - 大久保地域センター
+  - 調理工作室
+  capacity: 30
+  fee: 5400
+- keywords:
+  - 大久保地域センター
+  - 会議室B
+  capacity: 30
+  fee: 3600
+- keywords:
+  - 大久保地域センター
+  - 会議室C
+  capacity: 24
+  fee: 3000
+- keywords:
+  - 戸塚地域センター
+  - 会議室4
+  capacity: 12
+  fee: 2200
+- keywords:
+  - 戸塚地域センター
+  - 音楽室
+  capacity: 20
+  fee: 4200
+- keywords:
+  - 戸塚地域センター
+  - 和室
+  capacity: 24
+  fee: 5400
+- keywords:
+  - 戸塚地域センター
+  - 集会室2
+  capacity: 16
+  fee: 2800
+- keywords:
+  - 戸塚地域センター
+  - 集会室3
+  capacity: 6
+  fee: 1400
+- keywords:
+  - 落合第一地域センター
+  - 第二集会室
+  capacity: 24
+  fee: 4800
+- keywords:
+  - 落合第一地域センター
+  - 第2集会室
+  capacity: 24
+  fee: 4800
+- keywords:
+  - 落合第一地域センター
+  - 和室控室
+  capacity: 12
+  fee: 2200
+- keywords:
+  - 角筈地域センター
+  - 和室1
+  capacity: 20
+  fee: 5400
+- keywords:
+  - 角筈地域センター
+  - 和室Ⅰ
+  capacity: 20
+  fee: 5400
