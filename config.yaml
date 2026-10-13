@@ -6,6 +6,8 @@ required_slots:
 - 午後
 - 夜間
 check_interval_min: 5
+# 通常実行で、取得が完了した期間から先に通知する（生涯学習館のみ）。
+notify_during_scan: true
 active_hours:
 - 7
 - 23
