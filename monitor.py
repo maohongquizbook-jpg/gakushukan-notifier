@@ -468,9 +468,10 @@ def horizon_end_date(today: date, months: int = 3) -> date:
     return date(y, m, calendar.monthrange(y, m)[1])
 
 
-def fetch_availability(cfg: dict, debug: bool):
-    """1週間ごとに分割して検索し、公開範囲（3か月先の月末）までの空きコマを取得する。
-    100行の上限に達した週は自動的に短い期間へ分割して再検索する。"""
+def fetch_availability(cfg: dict, debug: bool, on_window=None):
+    """公開範囲まで検索し、上限に達した期間は分割する。
+    on_windowは、その期間の全館分を取得できた場合にだけ呼ぶ。
+    複数の館を別々に検索する場合は、期間単位の先行通知を認めない。"""
     from datetime import timedelta
     today = today_jst()
     if cfg.get("horizon_days"):  # 日数での明示指定があれば優先
@@ -519,12 +520,16 @@ def fetch_availability(cfg: dict, debug: bool):
             bnames = [None]
         if "bname_names" not in dir():
             bname_names = {}
+        if on_window is not None and len(bnames) != 1:
+            raise ValueError("先行通知は全館をまとめて検索できる場合に限ります")
 
         i = 0
         for bname in bnames:
             queue = list(base_queue)
             while queue:
                 start_iso, days_value = queue.pop(0)
+                if date.fromisoformat(start_iso) > end:
+                    continue
                 i += 1
                 tag = f"w{i}"
                 slots, ok, rows = {}, False, 0
@@ -548,8 +553,8 @@ def fetch_availability(cfg: dict, debug: bool):
                 if rows >= DAILY_ROW_CAP and days_value in SPLIT_MAP:
                     print(f"[INFO] {tag}: 行数が上限に達したため期間を分割して再取得します")
                     base = date.fromisoformat(start_iso)
-                    for off, dv in SPLIT_MAP[days_value]:
-                        queue.insert(0, ((base + timedelta(days=off)).isoformat(), dv))
+                    queue[0:0] = [((base + timedelta(days=off)).isoformat(), dv)
+                                  for off, dv in SPLIT_MAP[days_value]]
                     continue
                 if rows >= DAILY_ROW_CAP or (rows > 0 and not slots):
                     # 1日に分けても上限に達する場合、未取得分を満室と断定しない。
@@ -558,6 +563,8 @@ def fetch_availability(cfg: dict, debug: bool):
                     log_failure(f"{tag}: 一覧の全件取得・解析を確認できません")
                     continue
                 all_slots.update(slots)
+                if on_window is not None:
+                    on_window(slots, start_iso, int(days_value))
                 time.sleep(1)  # サーバー負荷への配慮
 
         browser.close()
@@ -967,7 +974,7 @@ def criteria_hash(cfg):
 
 
 def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
-                     explicit_status=False, annotate=None):
+                     explicit_status=False, annotate=None, observed_ranges=None):
     """3種類の監視に共通の差分処理。失敗箇所は未知として前回判定を保つ。"""
     reset = getattr(args, "reset_state", False)
     state = {} if reset else load_state()
@@ -979,11 +986,14 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
 
     def failed(key):
         return (key.split("|")[0] in failed_rooms
-                or in_failed_range(key.split("|")[-1], failed_ranges))
+                or in_failed_range(key.split("|")[-1], failed_ranges)
+                or (observed_ranges is not None
+                    and not in_failed_range(key.split("|")[-1], observed_ranges)))
 
     # 失敗箇所の新旧スロットを混ぜて、実在しない連続空きを組み立てない。
     fresh = {k: v for k, v in raw.items() if in_scope(k) and not failed(k)}
-    if not fresh and (failed_ranges or failed_rooms):
+    if ((observed_ranges is None and not fresh and (failed_ranges or failed_rooms))
+            or (observed_ranges is not None and not observed_ranges)):
         print("[ERROR] 比較できる取得結果がありません。状態を更新しません")
         return False
     groups = build_groups(fresh)
@@ -1008,6 +1018,12 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
     failed_dates = { (date.fromisoformat(start) + timedelta(days=i)).isoformat()
                      for start, days in failed_ranges for i in range(days)
                      if today <= date.fromisoformat(start) + timedelta(days=i) <= end }
+    if observed_ranges is not None:
+        # 未検索の日付は満室扱いせず、初回なら後続の取得時に基準登録する。
+        failed_dates.update((today + timedelta(days=i)).isoformat()
+                            for i in range((end - today).days + 1)
+                            if not in_failed_range((today + timedelta(days=i)).isoformat(),
+                                                   observed_ranges))
     pending = state.get("baseline_pending", {})
     pending_dates = set(pending.get("dates", []))
     pending_rooms = set(pending.get("rooms", []))
@@ -1015,8 +1031,11 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
     def newly_baselined(key):
         return key.split("|")[-1] in pending_dates or key.split("|")[0] in pending_rooms
 
-    counts = {}
+    # 他の期間を処理しても、未取得部分の満室確認回数を消さない。
+    counts = {k: int(v) for k, v in state.get("missing_counts", {}).items()
+              if k in previous and failed(k)}
     if baseline:
+        counts = {}
         accepted = set(current)
         pending_dates, pending_rooms = failed_dates, set(failed_rooms)
         print(f"[INFO] 初回・旧形式・条件変更・長期停止後のため、{len(current)}件を通知せず基準登録します")
@@ -1092,6 +1111,34 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
 
 
 def run_once(cfg: dict, args) -> bool:
+    # 地域センター・川崎の通知経路は従来どおり。通常実行だけ先行通知する。
+    incremental = (cfg.get("notify_during_scan", False)
+                   and cfg.get("category_value") == CATEGORY_SHOGAI_GAKUSHUKAN
+                   and not any(getattr(args, flag, False)
+                               for flag in ("dry_run", "reset_state", "notify_all", "test")))
+    if incremental:
+        started = time.monotonic()
+        completed = 0
+        print("[INFO] 生涯学習館先行通知版: 2026-10-13 / 取得済み期間から順次通知")
+
+        def consume_window(raw, start, days):
+            nonlocal completed
+            print(f"[INFO] 先行判定: {start}から{days}日間 / 開始から{time.monotonic() - started:.1f}秒")
+            if not process_snapshot(cfg, args, raw, observed_ranges=[(start, days)]):
+                raise RuntimeError("先行通知に失敗しました。送信済みの記録を残して今回の検索を停止します")
+            completed += 1
+
+        try:
+            fetch_availability(cfg, debug=args.debug, on_window=consume_window)
+        except RuntimeError as e:
+            print(f"[ERROR] {e}")
+            return False
+        print(f"[INFO] 生涯学習館: {completed}期間を判定 / 全体{time.monotonic() - started:.1f}秒")
+        if completed == 0:
+            print("[ERROR] 全件取得できた期間がありません。状態を更新しません")
+            return False
+        # 各期間は既に判定済み。全体を再判定すると満室の確認回数が二重になる。
+        return True
     raw, ok, failed_ranges = fetch_availability(cfg, debug=args.debug)
     if not ok and not failed_ranges:
         print("[ERROR] 取得の完了を確認できません。状態を更新しません")
