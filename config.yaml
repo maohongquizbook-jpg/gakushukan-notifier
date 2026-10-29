@@ -8,6 +8,10 @@ required_slots:
 check_interval_min: 5
 # 通常実行で、取得が完了した期間から先に通知する（生涯学習館のみ）。
 notify_during_scan: true
+# 一度空きが消え、次の取得で再び揃った場合もすぐ再通知する。
+notify_reopened_after_observed_gap: true
+# 非通知の判定理由・取得時刻・送信時刻をActionsのArtifactsに保存する。
+notification_diagnostics: true
 active_hours:
 - 7
 - 23
