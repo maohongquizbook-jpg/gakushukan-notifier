@@ -1,4 +1,22 @@
-# 川崎区・幸区・中原区38室。土日祝の午後＋夜間4,000円以内。利用条件・音出し条件は別分類。
+# 2026-11-16: 受付開始前・受付終了後を除外し、定員10人以上を通知。
+booking_policy_revision: '2026-11-16'
+min_capacity: 10
+booking_policy:
+  kind: fureai_indoor
+  deadline_days: 3
+  source: https://www.fureai-net.city.kawasaki.jp/user/view/pdf/guidebook.pdf
+  facility_overrides:
+    川崎マリエン:
+      deadline_days: 0
+  room_overrides:
+    総合福祉センター・和室:
+      kind: epoch_washitsu
+      deadline_days: 0
+      channel_note: 電話仮予約・窓口申込。ふれあいネットでは予約できません。開始日は窓口優先。
+      source: https://sfc-kawasaki.jp/hole-kaigishitsu/riyo-hoho/
+notify_during_scan: true
+notification_diagnostics: true
+# 川崎区・幸区・中原区38室を登録、定員10人以上の37室が候補。土日祝の午後＋夜間4,000円以内。
 discord_webhook_url: ''
 state_file: state_fureai.json
 notify_label: 午後＋夜間
@@ -597,7 +615,7 @@ targets:
     sound_checked_on: '2026-09-30'
     sound_review: 禁止明記なし・許可未確認
 notify_filled: false
-horizon_days: 70
+horizon_months: 4
 discord_mention: ''
 closed_confirmations: 2
 baseline_after_hours: 72
