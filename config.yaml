@@ -1,4 +1,12 @@
-# 生涯学習館5館29室。午後＋夜間。料金上限・人数下限なし。
+# 2026-11-16: 受付開始前・受付終了後を除外し、定員10人以上を通知。
+booking_policy_revision: '2026-11-16'
+min_capacity: 10
+booking_policy:
+  kind: gakushukan_general
+  deadline_days: 0
+  maintenance_26: false
+  source: https://www.regasu-shinjuku.or.jp/?p=188108
+# 生涯学習館5館29室。午後＋夜間。料金上限なし・定員10人以上。
 discord_webhook_url: ''
 category_value: '1000_1650'
 facility_filter: []
