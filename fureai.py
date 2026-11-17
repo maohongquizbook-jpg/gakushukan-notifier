@@ -17,12 +17,13 @@ import re
 import sys
 import time
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 import monitor as core
+import booking_rules as booking
 
 BASE_DIR = Path(__file__).parent
 SP_URL = "https://www.fureai-net.city.kawasaki.jp/sp/"
@@ -333,12 +334,14 @@ def return_to_room_list(page):
         wait(page, 0.6)
 
 
-def fetch_availability(cfg: dict, debug: bool):
+def fetch_availability(cfg: dict, debug: bool, on_room=None):
     all_slots = {}
     errors = []
     failed_rooms = set()
     today, end = core.search_bounds(cfg)
-    horizon_end = end.isoformat()
+    if cfg.get('_scan_windows'):
+        today = min(date.fromisoformat(s) for s, n in cfg['_scan_windows'])
+        end = max(date.fromisoformat(s) + timedelta(days=int(n)-1) for s, n in cfg['_scan_windows'])
     dumped_sample = False
 
     with sync_playwright() as p:
@@ -357,8 +360,10 @@ def fetch_availability(cfg: dict, debug: bool):
 
         page = fresh_page()
         try:
+            if cfg.get('_not_before'):
+                core.wait_until(datetime.fromisoformat(cfg['_not_before']))
             for tgt in cfg["targets"]:
-                active_rooms = [r for r in tgt["rooms"] if r.get("monitor", True)]
+                active_rooms = [r for r in tgt["rooms"] if booking.candidate(r, cfg)]
                 if not active_rooms:
                     continue
                 ward, kan = tgt["ward"], tgt["kan"]
@@ -378,11 +383,20 @@ def fetch_availability(cfg: dict, debug: bool):
                 for room_cfg in active_rooms:
                     rname = room_cfg["name"]
                     room_label = f"{kan}・{rname}"
+                    room_start, room_end = today, end
+                    if cfg.get('booking_policy'):
+                        entry = dict(room_cfg, facility=kan)
+                        checked_at = core.now_jst()
+                        days = [today + timedelta(days=i) for i in range((end-today).days + 1)]
+                        days = [d for d in days if booking.status(d, cfg, entry, checked_at)[0]]
+                        if not days:
+                            continue
+                        room_start, room_end = days[0], days[-1]
                     pairs = None
                     for attempt in range(2):
                         try:
                             open_room(page, ward, kan, room_cfg)
-                            start_search(page, today)
+                            start_search(page, room_start)
                             if debug and not dumped_sample:
                                 dump(page, f"result_sample_{kan}_{rname}")
                                 dumped_sample = True
@@ -390,7 +404,7 @@ def fetch_availability(cfg: dict, debug: bool):
                             room_options = dict(cfg)
                             if room_cfg.get("day_policy"):
                                 room_options["day_policy"] = room_cfg["day_policy"]
-                            pairs = collect_room_slots(page, room_options, horizon_end)
+                            pairs = collect_room_slots(page, room_options, room_end.isoformat())
                             if not pairs:
                                 raise ValueError("空き状況を解析できません")
                             break
@@ -411,6 +425,9 @@ def fetch_availability(cfg: dict, debug: bool):
                     print(f"[INFO] {kan}/{rname}: {len(pairs)}コマ（空き{n}）")
                     for (iso, slot), state in pairs.items():
                         all_slots[f"{room_label}|{slot}|{iso}"] = state
+                    if on_room is not None:
+                        raw = {f'{room_label}|{slot}|{iso}': state for (iso, slot), state in pairs.items()}
+                        on_room(raw, room_label, [(room_start.isoformat(), (room_end-room_start).days + 1)])
                     time.sleep(0.8)
                     try:
                         return_to_room_list(page)
@@ -419,7 +436,7 @@ def fetch_availability(cfg: dict, debug: bool):
                         print(f"[WARN] {kan}: 部屋一覧へ戻れません: {e}")
         finally:
             browser.close()
-    total = sum(r.get("monitor", True) for t in cfg["targets"] for r in t["rooms"])
+    total = sum(booking.candidate(r, cfg) for t in cfg["targets"] for r in t["rooms"])
     print(f"[INFO] 取得結果: 成功{total - len(failed_rooms)}/{total}室、保留{len(failed_rooms)}室")
     for room in sorted(failed_rooms):
         print(f"[WARN] 取得保留: {room}")
@@ -439,6 +456,7 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--test", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument('--opening-watch', action='store_true')
     ap.add_argument("--notify-all", action="store_true")
     ap.add_argument("--reset-state", action="store_true", help="通知せず現在の状態を基準として再登録")
     ap.add_argument("--config", default=str(BASE_DIR / "config_fureai.yaml"))
@@ -447,6 +465,8 @@ def main():
 
     if args.reset_state and (args.notify_all or args.test):
         ap.error("--reset-state は --notify-all / --test と併用できません")
+    if args.opening_watch and any((args.test, args.reset_state, args.notify_all)):
+        ap.error('--opening-watch はtest/reset-state/notify-allと併用できません')
     cfg = core.load_config(args.config)
 
     # 共通エンジンのグローバルをふれあいネット用に設定
@@ -455,6 +475,18 @@ def main():
     core.NOTIFY_LABEL = cfg.get("notify_label", "午後＋夜間")
     core.STATE_PATH = Path(args.state) if args.state else BASE_DIR / cfg.get("state_file", "state_fureai.json")
     core.BASE_URL = SP_URL
+
+    if args.opening_watch:
+        cfg = core.opening_config(cfg, args)
+        if cfg is None:
+            return
+    if not cfg.get('_not_before') and not booking.service_open(cfg, core.now_jst()):
+        print('[INFO] 予約システム受付時間外。検索せず履歴を保持します')
+        return
+
+    if cfg.get('notify_during_scan') and not any((args.test, args.reset_state, args.dry_run, args.notify_all)):
+        success = run_incremental(cfg, args)
+        sys.exit(0 if success else 1)
 
     raw, ok, errors, failed_rooms = fetch_availability(cfg, debug=args.debug or args.test)
 
@@ -470,7 +502,32 @@ def main():
         sys.exit(1)
     success = core.process_snapshot(cfg, args, raw, failed_rooms=failed_rooms,
                                     explicit_status=True, annotate=apply_fees)
-    sys.exit(0 if success else 1)
+    sys.exit(0 if success and ok else 1)
+
+
+def run_incremental(cfg, args):
+    rooms = {f"{e['facility']}・{e['name']}" for e in core.room_catalog(cfg) if booking.candidate(e, cfg)}
+    completed = 0
+    def consume(raw, room, ranges):
+        nonlocal completed
+        if not core.process_snapshot(cfg, args, raw, failed_rooms=rooms-{room},
+                                     observed_ranges=ranges, explicit_status=True,
+                                     positive_only=bool(cfg.get('_scan_windows'))):
+            raise RuntimeError('通知に失敗したため検索を停止。送信済みの履歴は保存しました')
+        completed += 1
+    try:
+        raw, ok, errors, failed = fetch_availability(cfg, args.debug, on_room=consume)
+    except RuntimeError as error:
+        print(f'[ERROR] {error}')
+        return False
+    core.trace_event(cfg, 'run_end', completed_rooms=completed, failed_rooms=sorted(failed), errors=errors)
+    if completed and cfg.get('_scan_windows'):
+        # 解禁日だけの検索は、その日以外を満室にしない。初回の基準も全室で確定。
+        ranges = [(s, int(n)) for s, n in cfg['_scan_windows']]
+        if not core.process_snapshot(cfg, args, raw, failed_rooms=failed,
+                                     observed_ranges=ranges, explicit_status=True):
+            return False
+    return completed > 0 and ok
 
 
 if __name__ == "__main__":
