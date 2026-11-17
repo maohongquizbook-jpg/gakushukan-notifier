@@ -3,6 +3,13 @@ name: fureai-monitor
 on:
   schedule:
     - cron: "15,45 0-13,22,23 * * *"
+    # 受付開始前に環境を準備。待機中は予約サイトにアクセスしない。
+    - cron: "40 21 28,31 * *"
+    # UTCの28日/31日22:02は、日本時間の29日/翌月1日07:02。
+    - cron: "2 22 28,31 * *"
+    # 年末年始休止後の1月4日07:00受付に備える。
+    - cron: "40 21 3 1 *"
+    - cron: "2 22 3 1 *"
   workflow_dispatch:
     inputs:
       test:
@@ -24,7 +31,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: ${{ (github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *') && 70 || 45 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,21 +53,24 @@ jobs:
       # Secret は環境変数で渡す。config*.yaml を編集すると git pull --rebase が失敗する。
       - name: Run monitor
         id: monitor
-        timeout-minutes: 40
+        timeout-minutes: ${{ (github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *') && 65 || 40 }}
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_FUREAI }}
           TEST_NOTIFICATION: ${{ inputs.test }}
           RESET_STATE: ${{ inputs.reset_state }}
+          OPENING_WATCH: ${{ github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *' }}
         run: |
           if [ "$TEST_NOTIFICATION" = "true" ] && [ "$RESET_STATE" = "true" ]; then
             echo "test と reset_state は併用できません" >&2
             exit 1
           elif [ "$TEST_NOTIFICATION" = "true" ]; then
-            python fureai.py --test
+            python -u fureai.py --test
           elif [ "$RESET_STATE" = "true" ]; then
-            python fureai.py --reset-state
+            python -u fureai.py --reset-state
+          elif [ "$OPENING_WATCH" = "true" ]; then
+            python -u fureai.py --opening-watch
           else
-            python fureai.py
+            python -u fureai.py
           fi
 
       # 途中まで送信して後続で失敗した場合も、送信済みのチェックポイントを保存する。
