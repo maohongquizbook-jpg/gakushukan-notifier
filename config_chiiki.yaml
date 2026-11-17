@@ -1,3 +1,12 @@
+# 2026-11-16: 受付開始前・受付終了後を除外し、定員10人以上を通知。
+booking_policy_revision: '2026-11-16'
+min_capacity: 10
+booking_policy:
+  kind: chiiki_general
+  deadline_days: 0
+  source: https://www.city.shinjuku.lg.jp/chiiki/community01_002070.html
+notification_diagnostics: true
+notify_during_scan: true
 # 地域センター利用条件版2026-10-07。利用者の施設確認結果を優先。monitor.pyと同時に差し替えてください。
 discord_webhook_url: ''
 base_url: https://www.shinjuku.eprs.jp/chiiki/web/
@@ -1963,11 +1972,6 @@ room_allowlist:
   - 集会室2
   capacity: 16
   fee: 2800
-- keywords:
-  - 戸塚地域センター
-  - 集会室3
-  capacity: 6
-  fee: 1400
 - keywords:
   - 落合第一地域センター
   - 第二集会室
