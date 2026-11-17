@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 import jpholiday
 import requests
 import yaml
+import booking_rules as booking
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 BASE_DIR = Path(__file__).parent
@@ -55,7 +56,7 @@ WEEKDAY_JA = "月火水木金土日"
 JST = ZoneInfo("Asia/Tokyo")
 STATE_VERSION = 2
 CHIIKI_RULES_REVISION = "2026-10-07"
-GAKUSHUKAN_REVISION = "2026-10-29"
+GAKUSHUKAN_REVISION = "2026-11-16"
 
 
 def now_jst():
@@ -77,10 +78,7 @@ def load_config(path=None) -> dict:
             raise ValueError(
                 "地域センターの利用条件が旧版です。monitor.pyとconfig_chiiki.yamlを"
                 "同じ修正版で上書きしてください。施設確認済みの除外条件を適用できないため通知を停止します。")
-        eligible = [e for e in cfg["room_catalog"]
-                    if e.get("monitor", True) and not e.get("excluded_reason")
-                    and e.get("user_confirmed_use") not in {"not_allowed", "joint_only"}
-                    and e.get("fee", float("inf")) <= cfg.get("max_total_fee", float("inf"))]
+        eligible = [e for e in cfg["room_catalog"] if booking.candidate(e, cfg)]
         print(f"[INFO] 地域センター利用条件版: {CHIIKI_RULES_REVISION} / 通知候補{len(eligible)}室 / 設定: {Path(path or CONFIG_PATH).name}")
     cfg.setdefault("required_slots", ["午後", "夜間"])
     cfg.setdefault("check_interval_min", 5)
@@ -91,6 +89,12 @@ def load_config(path=None) -> dict:
     cfg.setdefault("discord_mention", "")
     cfg.setdefault("closed_confirmations", 2)
     cfg.setdefault("facility_filter", [])
+    if cfg.get('booking_policy_revision') != booking.REVISION or not cfg.get('booking_policy'):
+        raise ValueError('予約受付ルールが旧版です。monitor.py・booking_rules.py・config*.yamlを11月16日版で揃えてください。')
+    for entry in room_catalog(cfg):
+        if booking.candidate(entry, cfg):
+            booking.opening_at(today_jst(), cfg, entry)  # 未知のルールは取得・送信前に停止
+    print(f"[INFO] 予約受付判定版: {booking.REVISION} / 定員{cfg.get('min_capacity', 0)}人以上 / {cfg['booking_policy']['kind']}")
     # 環境変数はメモリ上だけで読み、追跡中の設定ファイルを書き換えない。
     if "DISCORD_WEBHOOK_URL" in os.environ:
         cfg["discord_webhook_url"] = os.environ["DISCORD_WEBHOOK_URL"]
@@ -482,7 +486,7 @@ def horizon_end_date(today: date, months: int = 3) -> date:
     return date(y, m, calendar.monthrange(y, m)[1])
 
 
-def fetch_availability(cfg: dict, debug: bool, on_window=None, on_partial=None):
+def fetch_availability(cfg: dict, debug: bool, on_window=None, on_partial=None, on_found=None):
     """公開範囲まで検索し、上限に達した期間は分割する。
     on_windowは、その期間の全館分を取得できた場合にだけ呼ぶ。
     on_partialは上限に達した一覧の取得済み部分。欠落を満室と判定してはいけない。
@@ -496,8 +500,10 @@ def fetch_availability(cfg: dict, debug: bool, on_window=None, on_partial=None):
     total_days = (end - today).days + 1
     print(f"[INFO] 検索範囲: {today.isoformat()} 〜 {end.isoformat()} ({total_days}日間)")
     # 月単位で検索し、100行上限に達した月だけ週単位に自動分割する
-    base_queue = [((today + timedelta(days=off)).isoformat(), "31")
-                  for off in range(0, total_days, 31)]
+    base_queue = booking.search_plan(cfg, today, end, now_jst())
+    if not base_queue:
+        print('[INFO] 現在、検索対象となる受付期間がありません')
+        return {}, True, []
 
     all_slots = {}
     all_ok = True
@@ -510,6 +516,8 @@ def fetch_availability(cfg: dict, debug: bool, on_window=None, on_partial=None):
                         "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
         )
         page = context.new_page()
+        if cfg.get('_not_before'):
+            wait_until(datetime.fromisoformat(cfg['_not_before']))
 
         # 「どこで」(bname) の値リストを決定。
         #  - category_value 指定あり → その1つだけ
@@ -568,6 +576,8 @@ def fetch_availability(cfg: dict, debug: bool, on_window=None, on_partial=None):
                     log_failure(f"{tag} 失敗: {label} {start_iso}〜{days_value}日間")
                     print(f"[WARN] {tag} 失敗: {label} {start_iso}〜{days_value}日間")
                     continue
+                if slots and on_found is not None:
+                    on_found(slots, start_iso, int(days_value))
                 if rows >= DAILY_ROW_CAP and slots and on_partial is not None:
                     # 読み取れた午後＋夜間の空きは、分割再検索を待たずに判定する。
                     # 部分一覧の欠落から満室判定をすることはない。
@@ -731,6 +741,8 @@ def find_matched(groups: dict, cfg: dict) -> dict:
     matched = {}
     catalog = room_catalog(cfg)
     unknown = set()
+    rejected = {}
+    checked_at = now_jst()
     today, end = search_bounds(cfg)
     for gkey, g in groups.items():
         if not g["is_target"] or not g["date"] or not today <= g["date"] <= end:
@@ -750,7 +762,15 @@ def find_matched(groups: dict, cfg: dict) -> dict:
                 # 個別確認は一般的な公開案内より優先。一体利用の部屋を
                 # 片側だけの料金・空きで通知することも認めない。
                 continue
+            eligible, reason = booking.status(g['date'], cfg, entry, checked_at)
+            if not eligible:
+                rejected[reason] = rejected.get(reason, 0) + 1
+                continue
             annotate_room(g, entry, cfg)
+            opens = booking.opening_at(g['date'], cfg, entry)
+            if opens:
+                g['booking_opens_at'] = opens.isoformat()
+                g['booking_channel_note'] = booking.policy_for(entry, cfg).get('channel_note', '')
             if cfg.get("max_total_fee") is not None:
                 if g.get("budget_fee") is None or g["budget_fee"] > cfg["max_total_fee"]:
                     continue
@@ -760,10 +780,15 @@ def find_matched(groups: dict, cfg: dict) -> dict:
                 continue
             g["fee"] = entry.get("fee")
             g["capacity"] = entry.get("capacity")
+            if (g.get('capacity') or 0) < int(cfg.get('min_capacity', 0)):
+                continue
         if all(g["slots"].get(s) in AVAILABLE_STATES for s in required):
             matched[gkey] = g
     for room in sorted(unknown):
         print(f"[WARN] 施設台帳に未登録のため料金・定員を確認してください: {room}")
+    if rejected:
+        print(f'[INFO] 受付・定員条件で通知対象外: {rejected}')
+        trace_event(cfg, 'eligibility_filter', counts=rejected)
     return matched
 
 
@@ -826,6 +851,11 @@ def format_group_line(gkey: str, g: dict, reopened: bool) -> str:
     for field in ("blocked_reason", "conditional_reason", "fee_note", "usage_note"):
         if g.get(field):
             line += f"\n　{g[field]}"
+    if g.get('booking_opens_at'):
+        opens = datetime.fromisoformat(g['booking_opens_at'])
+        line += f"\n　受付開始: {opens:%Y/%m/%d %H:%M}（日本時間）"
+    if g.get('booking_channel_note'):
+        line += '\n　' + g['booking_channel_note']
     return line
 
 
@@ -1024,6 +1054,10 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
     if annotate:
         annotate(matched, cfg)
     current = set(matched)
+    opening_keys = {k for k in current
+                    if (k.split('|')[-1] in getattr(args, 'opening_dates', ())
+                        or (matched[k].get('booking_opens_at')
+                            and datetime.fromisoformat(matched[k]['booking_opens_at']).date() == now_jst().date()))}
     fingerprint = criteria_hash(cfg)
     baseline_reasons = []
     if reset:
@@ -1033,6 +1067,7 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
     if state.get("criteria_hash") != fingerprint:
         baseline_reasons.append("通知条件の変更")
     max_age = float(cfg.get("baseline_after_hours", 72))
+    updated = now_jst()
     if state.get("updated") and max_age > 0:
         updated = datetime.fromisoformat(state["updated"])
         if updated.tzinfo is None:
@@ -1047,6 +1082,18 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
         return True
     previous = {k for k in state.get("matched", []) if in_scope(k)}
     ever = {k for k in state.get("ever_matched", []) if in_scope(k)}
+    if cfg.get('booking_policy') or cfg.get('min_capacity'):
+        def valid_history(key):
+            entry = match_room(key.split('|')[0], room_catalog(cfg))
+            day = parse_date_from_text(key.split('|')[-1])
+            return (entry is not None and booking.candidate(entry, cfg)
+                    and booking.status(day, cfg, entry, updated)[0]
+                    and booking.status(day, cfg, entry, now_jst())[0])
+        removed = previous - {k for k in previous if valid_history(k)}
+        previous -= removed
+        ever = {k for k in ever if valid_history(k)}
+        if removed:
+            trace_event(cfg, 'remove_ineligible_history', keys=sorted(removed))
     raw_saved = {k: v for k, v in state.get("slots", {}).items()
                  if in_scope(k) and (positive_only or failed(k))}
     raw_saved.update(fresh)
@@ -1063,9 +1110,18 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
     pending = state.get("baseline_pending", {})
     pending_dates = set(pending.get("dates", []))
     pending_rooms = set(pending.get("rooms", []))
+    if cfg.get('booking_policy'):
+        def eligible_date(iso, at):
+            day = date.fromisoformat(iso)
+            return any(booking.status(day, cfg, e, at)[0]
+                       for e in room_catalog(cfg) if booking.candidate(e, cfg))
+        failed_dates = {iso for iso in failed_dates if eligible_date(iso, now_jst())}
+        # 未公開だった日まで初回の「通知しない」範囲に残してはいけない。
+        pending_dates = {iso for iso in pending_dates if eligible_date(iso, updated)}
 
     def newly_baselined(key):
-        return key.split("|")[-1] in pending_dates or key.split("|")[0] in pending_rooms
+        # 予備の通常実行でも、当日解禁分を「初回なので無通知」にしない。
+        return key not in opening_keys and (key.split("|")[-1] in pending_dates or key.split("|")[0] in pending_rooms)
 
     # 他の期間を処理しても、未取得部分の満室確認回数を消さない。
     counts = {k: int(v) for k, v in state.get("missing_counts", {}).items()
@@ -1074,6 +1130,10 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
         counts = {}
         accepted = set(current)
         pending_dates, pending_rooms = failed_dates, set(failed_rooms)
+        if cfg.get('targets') and getattr(args, 'opening_dates', ()) and pending_dates:
+            # 川崎の初回が解禁日のみの場合、他の日の初回確認を各室ごとに保持。
+            pending_rooms.update(f"{e['facility']}・{e['name']}" for e in room_catalog(cfg)
+                                 if booking.candidate(e, cfg))
         print(f"[INFO] {'・'.join(baseline_reasons)}のため、{len(current)}件を通知せず基準登録します")
     else:
         accepted = set(previous)
@@ -1101,9 +1161,11 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
                        baseline_pending={"dates": sorted(pending_dates), "rooms": sorted(pending_rooms)})
 
     forced = args.notify_all
+    if baseline and not reset and opening_keys:
+        accepted.difference_update(opening_keys)
     if baseline and forced:
         accepted = set()
-    targets = current if forced else (set() if baseline else current - accepted)
+    targets = current if forced else (opening_keys if baseline and not reset else set() if baseline else current - accepted)
     if positive_only:
         targets = {k for k in targets if not newly_baselined(k)}
     lost = []
@@ -1168,7 +1230,10 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
 
 
 def run_once(cfg: dict, args) -> bool:
-    # 地域センター・川崎の通知経路は従来どおり。通常実行だけ先行通知する。
+    if not cfg.get('_not_before') and not booking.service_open(cfg, now_jst()):
+        print('[INFO] 予約システム受付時間外。検索せず履歴を保持します')
+        return True
+    # 通常実行と受付開始監視だけ先行通知する。制御用モードは全体取得する。
     incremental = (cfg.get("notify_during_scan", False)
                    and cfg.get("category_value") == CATEGORY_SHOGAI_GAKUSHUKAN
                    and not any(getattr(args, flag, False)
@@ -1176,7 +1241,7 @@ def run_once(cfg: dict, args) -> bool:
     if incremental:
         started = time.monotonic()
         completed = 0
-        print(f"[INFO] 生涯学習館先行通知版: {GAKUSHUKAN_REVISION} / 部分取得の空きも先行通知")
+        print(f"[INFO] 生涯学習館先行通知版: {GAKUSHUKAN_REVISION} / 予約受付開始・定員を確認して先行通知")
         print(f"[INFO] 実行開始: {now_jst().isoformat()}")
         trace_event(cfg, "run_start", revision=GAKUSHUKAN_REVISION)
 
@@ -1194,8 +1259,8 @@ def run_once(cfg: dict, args) -> bool:
                 raise RuntimeError("部分先行通知に失敗しました。送信済みの記録を残して検索を停止します")
 
         try:
-            fetch_availability(cfg, debug=args.debug, on_window=consume_window,
-                               on_partial=consume_partial)
+            _, all_ok, failed_ranges = fetch_availability(cfg, debug=args.debug, on_window=consume_window,
+                                                         on_partial=consume_partial)
         except RuntimeError as e:
             print(f"[ERROR] {e}")
             return False
@@ -1206,12 +1271,59 @@ def run_once(cfg: dict, args) -> bool:
             print("[ERROR] 全件取得できた期間がありません。未取得部分の前回状態と送信済みの記録を保持します")
             return False
         # 各期間は既に判定済み。全体を再判定すると満室の確認回数が二重になる。
-        return True
+        return all_ok and not failed_ranges
+    if (cfg.get('notify_during_scan') and '/chiiki/web/' in cfg.get('base_url', '')
+            and not any(getattr(args, flag, False) for flag in ('dry_run', 'reset_state', 'notify_all', 'test'))):
+        def consume_found(raw, start, days):
+            if not process_snapshot(cfg, args, raw, observed_ranges=[(start, days)], positive_only=True):
+                raise RuntimeError('地域センターの先行通知に失敗しました。送信済みの履歴を保持します')
+        try:
+            raw, ok, failed_ranges = fetch_availability(cfg, debug=args.debug, on_found=consume_found)
+        except RuntimeError as error:
+            print(f'[ERROR] {error}')
+            return False
+        observed = [(s, int(n)) for s, n in cfg['_scan_windows']] if cfg.get('_scan_windows') else None
+        processed = process_snapshot(cfg, args, raw, failed_ranges=failed_ranges, observed_ranges=observed)
+        return processed and ok
     raw, ok, failed_ranges = fetch_availability(cfg, debug=args.debug)
     if not ok and not failed_ranges:
         print("[ERROR] 取得の完了を確認できません。状態を更新しません")
         return False
-    return process_snapshot(cfg, args, raw, failed_ranges=failed_ranges)
+    observed = [(s, int(n)) for s, n in cfg['_scan_windows']] if cfg.get('_scan_windows') else None
+    processed = process_snapshot(cfg, args, raw, failed_ranges=failed_ranges, observed_ranges=observed)
+    return processed and ok
+
+
+def wait_until(target):
+    """ローカル待機のみ。予約サイトへは待機中に要求しない。"""
+    remaining = (target - now_jst()).total_seconds()
+    if remaining > 30 * 60:
+        raise ValueError('予約開始待機は30分以内に限ります')
+    print(f'[INFO] 予約開始待機: {target.isoformat()} / 待機中のサイトアクセスなし', flush=True)
+    while (remaining := (target - now_jst()).total_seconds()) > 0:
+        time.sleep(min(30, remaining))
+    print(f'[INFO] 予約開始検索: {now_jst().isoformat()} / 開始遅れ{max(0, -remaining):.1f}秒', flush=True)
+
+
+def opening_config(cfg, args):
+    """起動準備を済ませたプロセスで、解禁する日だけを検索する。"""
+    start = now_jst()
+    _, end = search_bounds(cfg)
+    event, days = booking.opening_dates(cfg, start, end, lambda d: is_target_day(d, ''))
+    if not days:
+        print('[INFO] 前後30分に通知対象日の予約開始はありません')
+        return None
+    if not booking.service_open(cfg, event):
+        print('[INFO] 予約開始予定時刻はシステム受付休止中です。検索せず履歴を保持します')
+        return None
+    import copy
+    cfg = copy.deepcopy(cfg)
+    cfg['_not_before'] = event.isoformat()
+    cfg['_scan_windows'] = [(d.isoformat(), '1') for d in days]
+    args.opening_dates = [d.isoformat() for d in days]
+    trace_event(cfg, 'opening_plan', event_time=event.isoformat(), dates=args.opening_dates)
+    print(f'[INFO] 予約開始対象: {args.opening_dates} / {event.isoformat()}')
+    return cfg
 
 
 def main():
@@ -1221,6 +1333,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--reset-state", action="store_true", help="通知せず現在の状態を基準として再登録")
     ap.add_argument("--loop", action="store_true")
+    ap.add_argument('--opening-watch', action='store_true', help='受付開始前に準備し、開始時刻に解禁日を検索')
     ap.add_argument("--test", action="store_true",
                     help="取得結果の要約をテスト通知としてDiscordへ必ず送る")
     ap.add_argument("--config", default=str(CONFIG_PATH), help="設定ファイルのパス")
@@ -1228,6 +1341,8 @@ def main():
     args = ap.parse_args()
     if args.reset_state and (args.notify_all or args.test):
         ap.error("--reset-state は --notify-all / --test と併用できません")
+    if args.opening_watch and any((args.test, args.reset_state, args.notify_all, args.loop)):
+        ap.error('--opening-watch はtest/reset-state/notify-all/loopと併用できません')
 
     cfg = load_config(args.config)
     # サイトごとの上書き
@@ -1245,6 +1360,10 @@ def main():
         STATE_PATH = Path(args.state)
     elif cfg.get("state_file"):
         STATE_PATH = BASE_DIR / cfg["state_file"]
+    if args.opening_watch:
+        cfg = opening_config(cfg, args)
+        if cfg is None:
+            return
     if args.test:
         raw, ok, failed_ranges = fetch_availability(cfg, debug=args.debug)
         errors = [f"{s}から{d}日間の取得に失敗" for s, d in failed_ranges] or None
