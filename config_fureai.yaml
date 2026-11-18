@@ -1,5 +1,6 @@
 # 2026-11-16: 受付開始前・受付終了後を除外し、定員10人以上を通知。
 booking_policy_revision: '2026-11-16'
+fureai_scan_revision: '2026-11-18'
 min_capacity: 10
 booking_policy:
   kind: fureai_indoor
@@ -16,6 +17,10 @@ booking_policy:
       source: https://sfc-kawasaki.jp/hole-kaigishitsu/riyo-hoho/
 notify_during_scan: true
 notification_diagnostics: true
+# 通常回は24分を目安に部屋の境目で区切り、次回は巡回位置から再開する。
+scan_budget_minutes: 24
+# 正常に読めた回で必須枠が一度埋まり、両方再び空いた場合に再通知する。
+notify_reopened_after_observed_gap: true
 # 川崎区・幸区・中原区38室を登録、定員10人以上の37室が候補。土日祝の午後＋夜間4,000円以内。
 discord_webhook_url: ''
 state_file: state_fureai.json
