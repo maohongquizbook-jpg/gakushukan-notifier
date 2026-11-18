@@ -810,12 +810,14 @@ def load_state() -> dict:
 
 
 def save_state(raw_slots: dict, matched_keys: list, ever_matched: set, **metadata):
-    data = json.dumps({"version": STATE_VERSION,
-                    "updated": now_jst().isoformat(),
-                    "slots": raw_slots,
-                    "matched": sorted(matched_keys),
-                    "ever_matched": sorted(ever_matched), **metadata},
-                   ensure_ascii=False, indent=1) + "\n"
+    write_state_document({"version": STATE_VERSION, "updated": now_jst().isoformat(),
+                          "slots": raw_slots, "matched": sorted(matched_keys),
+                          "ever_matched": sorted(ever_matched), **metadata})
+
+
+def write_state_document(document):
+    """巡回位置だけを保存する場合は、空きの最終確認時刻も通知履歴も書き換えない。"""
+    data = json.dumps(document, ensure_ascii=False, indent=1) + "\n"
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp_path = None
     try:
@@ -1113,6 +1115,8 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
     if cfg.get('booking_policy'):
         def eligible_date(iso, at):
             day = date.fromisoformat(iso)
+            if cfg.get('targets') and not is_target_day(day, ''):
+                return False
             return any(booking.status(day, cfg, e, at)[0]
                        for e in room_catalog(cfg) if booking.candidate(e, cfg))
         failed_dates = {iso for iso in failed_dates if eligible_date(iso, now_jst())}
@@ -1156,9 +1160,12 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
 
     def checkpoint():
         if not args.dry_run:
+            # 川崎の通常巡回位置は、解禁日のみの検索・送信途中の保存でも保持する。
+            cursor = {"fureai_scan": state["fureai_scan"]} if cfg.get("targets") and "fureai_scan" in state else {}
             save_state(raw_saved, list(accepted), ever, criteria_hash=fingerprint,
                        missing_counts=counts,
-                       baseline_pending={"dates": sorted(pending_dates), "rooms": sorted(pending_rooms)})
+                       baseline_pending={"dates": sorted(pending_dates), "rooms": sorted(pending_rooms)},
+                       **cursor)
 
     forced = args.notify_all
     if baseline and not reset and opening_keys:
@@ -1222,6 +1229,9 @@ def process_snapshot(cfg, args, raw, *, failed_ranges=(), failed_rooms=(),
             notify_lost(cfg.get("discord_webhook_url", ""), sorted(lost, key=lambda k: (k.split("|")[-1], k)),
                         args.dry_run, on_sent=closed_sent)
     except RuntimeError as e:
+        # Webhook URL・例外本文は診断ファイルに残さない。
+        http = re.search(r"\bHTTP (\d{3})\b", str(e))
+        trace_event(cfg, "discord_error", http_status=int(http.group(1)) if http else None)
         print(f"[ERROR] {e}")
         return False
     if args.dry_run:
