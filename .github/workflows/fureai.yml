@@ -12,6 +12,10 @@ on:
     - cron: "2 22 3 1 *"
   workflow_dispatch:
     inputs:
+      webhook_only:
+        description: "ふれあいのDiscord通知先だけをテスト（検索・履歴更新なし／他はオフ）"
+        type: boolean
+        default: false
       test:
         description: "テスト通知をDiscordへ送る（通常はオフ）"
         type: boolean
@@ -25,13 +29,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: fureai-${{ github.ref }}
+  group: fureai-${{ inputs.webhook_only && github.run_id || github.ref }}
   cancel-in-progress: false
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *') && 70 || 45 }}
+    timeout-minutes: ${{ (inputs.test || inputs.reset_state) && 90 || (github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *') && 75 || 50 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,27 +44,38 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Install Python deps
         run: pip install -r requirements.txt
       - name: Cache Playwright browser
+        if: ${{ inputs.webhook_only != true }}
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
       - name: Install browser
+        if: ${{ inputs.webhook_only != true }}
         run: playwright install --with-deps chromium
 
       # Secret は環境変数で渡す。config*.yaml を編集すると git pull --rebase が失敗する。
       - name: Run monitor
         id: monitor
-        timeout-minutes: ${{ (github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *') && 65 || 40 }}
+        timeout-minutes: ${{ (inputs.test || inputs.reset_state) && 80 || (github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *') && 65 || 40 }}
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_FUREAI }}
           TEST_NOTIFICATION: ${{ inputs.test }}
+          WEBHOOK_ONLY: ${{ inputs.webhook_only }}
           RESET_STATE: ${{ inputs.reset_state }}
           OPENING_WATCH: ${{ github.event.schedule == '40 21 28,31 * *' || github.event.schedule == '40 21 3 1 *' }}
         run: |
-          if [ "$TEST_NOTIFICATION" = "true" ] && [ "$RESET_STATE" = "true" ]; then
+          if [ "$WEBHOOK_ONLY" = "true" ]; then
+            if [ "$TEST_NOTIFICATION" = "true" ] || [ "$RESET_STATE" = "true" ]; then
+              echo "webhook_only は単独で実行してください" >&2
+              exit 1
+            fi
+            python -u fureai.py --webhook-only
+          elif [ "$TEST_NOTIFICATION" = "true" ] && [ "$RESET_STATE" = "true" ]; then
             echo "test と reset_state は併用できません" >&2
             exit 1
           elif [ "$TEST_NOTIFICATION" = "true" ]; then
@@ -75,13 +90,13 @@ jobs:
 
       # 途中まで送信して後続で失敗した場合も、送信済みのチェックポイントを保存する。
       - name: Persist state
-        if: ${{ always() && (steps.monitor.outcome == 'success' || steps.monitor.outcome == 'failure') && inputs.test != true }}
+        if: ${{ always() && (steps.monitor.outcome == 'success' || steps.monitor.outcome == 'failure' || steps.monitor.outcome == 'cancelled') && inputs.test != true && inputs.webhook_only != true }}
         env:
           STATE_BRANCH: ${{ github.ref_name }}
         run: bash scripts/persist_state.sh state_fureai.json "$STATE_BRANCH"
 
       - name: Upload state backup and debug files
-        if: always()
+        if: ${{ always() && inputs.webhook_only != true }}
         uses: actions/upload-artifact@v4
         with:
           name: fureai-state-and-debug-${{ github.run_id }}-${{ github.run_attempt }}
