@@ -9,6 +9,7 @@
 使い方:
     python fureai.py               # 1回チェック（差分があれば通知）
     python fureai.py --test        # テスト通知（現在の成立一覧を必ず送る）
+    python fureai.py --webhook-only  # 部屋を検索せず、ふれあい用の通知先だけを確認
     python fureai.py --debug      # 各画面をdebug/へ保存
     python fureai.py --dry-run    # Discordへ送信しない
 """
@@ -18,6 +19,7 @@ import sys
 import time
 import unicodedata
 from datetime import date, datetime, timedelta
+from itertools import groupby
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -31,6 +33,7 @@ MARK_AVAILABLE = ("空き", "○", "◯", "〇")
 MARK_PARTIAL = ("一部",)
 LIST_TIMEOUT_MS = 20000
 MAX_LIST_PAGES = 30
+FUREAI_REVISION = "2026-11-18"
 
 # jQuery Mobile が残す非表示の旧画面を操作・解析しない。
 _DOM_SETUP = r"""
@@ -235,6 +238,25 @@ def parse_vacancy(page):
     return d.isoformat(), states
 
 
+def wait_for_result(page, earliest, after=None):
+    """表示中の結果の日付と空き情報が揃うまで待つ。古い画面の再読を防ぐ。"""
+    script = "(p) => {" + _DOM_SETUP + r"""
+        if (!root || document.readyState === 'loading' ||
+            document.documentElement.classList.contains('ui-mobile-rendering')) return false;
+        const txt = root.innerText.replace(/\s+/g, ' ');
+        const d = txt.match(/(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日/);
+        if (!d || !/空き情報.*(?:午前|午後|夜間)/.test(txt)) return false;
+        const iso = d[1]+'-'+d[2].padStart(2,'0')+'-'+d[3].padStart(2,'0');
+        return iso >= p.earliest && (!p.after || iso > p.after);
+    }"""
+    try:
+        handle = page.wait_for_function(script, arg={"earliest": earliest, "after": after},
+                                        timeout=LIST_TIMEOUT_MS, polling=150)
+        handle.dispose()
+    except PWTimeout as e:
+        raise ValueError("結果の日付送り・空き情報の読み込みが完了しません") from e
+
+
 def walk_to_room_list(page, ward: str, kan: str) -> bool:
     """トップから 施設空き状況→地域から→区→館 と辿って部屋一覧に立つ。"""
     try:
@@ -270,6 +292,11 @@ def collect_room_slots(page, cfg, horizon_end):
     pairs = {}
     previous = None
     for _ in range(160):
+        if cfg.get('_room_deadline') is not None and time.monotonic() >= cfg['_room_deadline']:
+            if pairs:
+                # 確認済みの日だけを上位へ返す。残りは期待日との照合で取得保留になる。
+                return pairs
+            raise ValueError("1室の検索時間上限に達しました")
         iso, states = parse_vacancy(page)
         if not iso or (previous and iso <= previous):
             raise ValueError("日付送りの完了を確認できません")
@@ -291,7 +318,9 @@ def collect_room_slots(page, cfg, horizon_end):
             pairs[(iso, slot)] = status
         if iso == horizon_end or not click_text(page, "翌日"):
             return pairs
-        wait(page, 0.6)
+        # 連続リクエストを詰めず、通信全体のアイドル判定ではなく必要な画面を待つ。
+        time.sleep(1.1)
+        wait_for_result(page, iso, after=iso)
     raise ValueError("日付送りの上限に達しました")
 
 
@@ -320,7 +349,7 @@ def start_search(page, today):
     }""", {"y": today.year, "m": today.month, "d": today.day})
     if not click_text(page, "検索開始", exact=True):
         raise ValueError("検索開始ボタンを選択できません")
-    wait(page, 1.5)
+    wait_for_result(page, today.isoformat())
 
 
 def return_to_room_list(page):
@@ -334,15 +363,99 @@ def return_to_room_list(page):
         wait(page, 0.6)
 
 
-def fetch_availability(cfg: dict, debug: bool, on_room=None):
+def room_plan(cfg):
+    return [(t, r, f"{t['kan']}・{r['name']}") for t in cfg["targets"]
+            for r in t['rooms'] if booking.candidate(r, cfg)]
+
+
+class RoomSweep:
+    """通常回の巡回順。通知条件・通知履歴と切り離し、一度に各室を最大1回処理する。"""
+    def __init__(self, cfg, state):
+        rows = room_plan(cfg)
+        self.labels = [row[2] for row in rows]
+        if not rows or len(set(self.labels)) != len(rows):
+            raise ValueError("ふれあいネットの対象室が空か、識別名が重複しています")
+        cursor = state.get('fureai_scan') or {}
+        self.next_room = cursor.get('next_room') if isinstance(cursor, dict) else None
+        if self.next_room not in self.labels:
+            self.next_room = self.labels[0]
+            if state.get('criteria_hash') == core.criteria_hash(cfg):
+                # 旧版は、取得した室の枠をslotsの末尾へ書き直していた。
+                # 初回のみ順序の手掛かりにする。空き・既通知の判定には使わない。
+                for key in reversed(state.get('slots', {})):
+                    last = key.split('|', 1)[0]
+                    if last in self.labels:
+                        self.next_room = self.successor(last)
+                        break
+        start = self.labels.index(self.next_room)
+        self.rows = rows[start:] + rows[:start]
+        self.attempted = []
+        self.started = time.monotonic()
+        self.budget = float(cfg.get('scan_budget_minutes', 24)) * 60
+        if not 0 < self.budget <= 30 * 60:
+            raise ValueError("scan_budget_minutes は0より大きく30以下で指定してください")
+
+    def successor(self, room):
+        return self.labels[(self.labels.index(room) + 1) % len(self.labels)]
+
+    def persist_start(self, state):
+        cursor = state.get('fureai_scan')
+        if isinstance(cursor, dict) and cursor.get('next_room') == self.next_room:
+            return
+        # 初回の送信が失敗しても、旧slotsの書き込み順から再推定して飛ばさない。
+        doc = dict(state) if state else {'slots': {}, 'matched': [], 'ever_matched': []}
+        doc['fureai_scan'] = {'next_room': self.next_room}
+        core.write_state_document(doc)
+
+    def time_to_yield(self):
+        return bool(self.attempted) and time.monotonic() - self.started >= self.budget
+
+    def advance(self, room, outcome):
+        # Discord送信／既通知キーの確定より先に位置を進めない。
+        # 解析失敗は未知のまま1周後に再試行可能にする。失敗を基準登録しない。
+        next_room = self.successor(room)
+        state = core.load_state() or {'slots': {}, 'matched': [], 'ever_matched': []}
+        state['fureai_scan'] = {'next_room': next_room, 'last_room': room, 'last_result': outcome}
+        core.write_state_document(state)
+        self.attempted.append(room)
+        self.next_room = next_room
+
+    def remaining(self):
+        return [r for _, _, r in self.rows if r not in self.attempted]
+
+
+def observed_ranges(days):
+    """実際に取得できた日だけを、既存の差分エンジンに渡せる連続範囲にする。"""
+    ranges = []
+    for day in sorted(days):
+        if ranges and ranges[-1][0] + timedelta(days=ranges[-1][1]) == day:
+            ranges[-1][1] += 1
+        else:
+            ranges.append([day, 1])
+    return [(day.isoformat(), count) for day, count in ranges]
+
+
+def fetch_availability(cfg: dict, debug: bool, on_room=None, *, sweep=None):
     all_slots = {}
     errors = []
     failed_rooms = set()
     today, end = core.search_bounds(cfg)
+    focus = None
     if cfg.get('_scan_windows'):
-        today = min(date.fromisoformat(s) for s, n in cfg['_scan_windows'])
-        end = max(date.fromisoformat(s) + timedelta(days=int(n)-1) for s, n in cfg['_scan_windows'])
+        focus = {date.fromisoformat(s) + timedelta(days=i)
+                 for s, n in cfg['_scan_windows'] for i in range(int(n))}
+        today, end = min(focus), max(focus)
     dumped_sample = False
+    rows = sweep.rows if sweep is not None else room_plan(cfg)
+    complete, skipped, visited = [], [], []
+    def finish(room, outcome):
+        if sweep is not None:
+            sweep.advance(room, outcome)
+        visited.append(room)
+
+    def trace(event, **detail):
+        if cfg.get('notification_diagnostics'):
+            core.trace_event(cfg, event, **detail)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -362,12 +475,12 @@ def fetch_availability(cfg: dict, debug: bool, on_room=None):
         try:
             if cfg.get('_not_before'):
                 core.wait_until(datetime.fromisoformat(cfg['_not_before']))
-            for tgt in cfg["targets"]:
-                active_rooms = [r for r in tgt["rooms"] if booking.candidate(r, cfg)]
-                if not active_rooms:
-                    continue
-                ward, kan = tgt["ward"], tgt["kan"]
+            for (ward, kan), grouped in groupby(rows, key=lambda v: (v[0]['ward'], v[0]['kan'])):
+                if sweep is not None and sweep.time_to_yield():
+                    break
+                active_rooms = list(grouped)
                 print(f"[INFO] === {ward} / {kan} ===")
+                trace("building_start", facility=kan, first_room=active_rooms[0][2])
                 reached = walk_to_room_list(page, ward, kan)
                 if not reached:
                     print(f"[INFO] {kan}: 新しいセッションで再試行します")
@@ -376,22 +489,34 @@ def fetch_availability(cfg: dict, debug: bool, on_room=None):
                     reached = walk_to_room_list(page, ward, kan)
                 if not reached:
                     errors.append(f"{ward}/{kan}: 部屋一覧に到達できません")
-                    failed_rooms.update(f"{kan}・{r['name']}" for r in active_rooms)
+                    for _, _, label in active_rooms:
+                        failed_rooms.add(label)
+                        finish(label, 'failed')
                     dump(page, f"kanfail_{kan}", screenshot=False)
                     continue
 
-                for room_cfg in active_rooms:
+                for _, room_cfg, room_label in active_rooms:
+                    if sweep is not None and sweep.time_to_yield():
+                        break
                     rname = room_cfg["name"]
-                    room_label = f"{kan}・{rname}"
                     room_start, room_end = today, end
+                    expected = None
                     if cfg.get('booking_policy'):
                         entry = dict(room_cfg, facility=kan)
                         checked_at = core.now_jst()
                         days = [today + timedelta(days=i) for i in range((end-today).days + 1)]
-                        days = [d for d in days if booking.status(d, cfg, entry, checked_at)[0]]
-                        if not days:
+                        days = [d for d in days if (focus is None or d in focus)
+                                and booking.status(d, cfg, entry, checked_at)[0]]
+                        expected = {d for d in days if core.is_target_day(d, '')}
+                        if not expected:
+                            skipped.append(room_label)
+                            finish(room_label, 'no_eligible_dates')
                             continue
-                        room_start, room_end = days[0], days[-1]
+                        room_start, room_end = min(expected), max(expected)
+                    trace("room_start", room=room_label, first_date=room_start.isoformat(),
+                          last_date=room_end.isoformat())
+                    room_ts = time.monotonic()
+                    room_deadline = room_ts + 5 * 60 if sweep is not None else None
                     pairs = None
                     for attempt in range(2):
                         try:
@@ -400,18 +525,21 @@ def fetch_availability(cfg: dict, debug: bool, on_room=None):
                             if debug and not dumped_sample:
                                 dump(page, f"result_sample_{kan}_{rname}")
                                 dumped_sample = True
-                            # 途中まで取れた部屋も、失敗時は一切採用しない。
+                            # 解析エラーが出た試行のデータを別の試行に継ぎ足さない。
                             room_options = dict(cfg)
+                            room_options['_room_deadline'] = room_deadline
                             if room_cfg.get("day_policy"):
                                 room_options["day_policy"] = room_cfg["day_policy"]
                             pairs = collect_room_slots(page, room_options, room_end.isoformat())
+                            if expected is not None:
+                                pairs = {k: v for k, v in pairs.items() if date.fromisoformat(k[0]) in expected}
                             if not pairs:
                                 raise ValueError("空き状況を解析できません")
                             break
                         except Exception as e:
                             pairs = None
                             print(f"[WARN] {kan}/{rname}: {type(e).__name__}: {e}")
-                            if attempt == 0:
+                            if attempt == 0 and (room_deadline is None or time.monotonic() < room_deadline):
                                 print(f"[INFO] {kan}/{rname}: 新しいセッションで再試行します")
                                 page = fresh_page(page)
                                 time.sleep(3)
@@ -419,15 +547,29 @@ def fetch_availability(cfg: dict, debug: bool, on_room=None):
                                 errors.append(f"{kan}/{rname}: {type(e).__name__}: {e}")
                                 failed_rooms.add(room_label)
                                 dump(page, f"roomfail_{kan}_{rname}", screenshot=False)
+                                break
                     if pairs is None:
+                        trace("room_failed", room=room_label, seconds=round(time.monotonic()-room_ts, 1))
+                        finish(room_label, 'failed')
                         continue
+                    seen = {date.fromisoformat(iso) for iso, _ in pairs}
+                    missing = sorted((expected or seen) - seen)
+                    if missing:
+                        errors.append(f"{room_label}: 対象日のうち{len(missing)}日を未取得")
+                        print(f"[WARN] {errors[-1]}")
+                        failed_rooms.add(room_label)
                     n = sum(1 for v in pairs.values() if v in core.AVAILABLE_STATES)
                     print(f"[INFO] {kan}/{rname}: {len(pairs)}コマ（空き{n}）")
                     for (iso, slot), state in pairs.items():
                         all_slots[f"{room_label}|{slot}|{iso}"] = state
                     if on_room is not None:
                         raw = {f'{room_label}|{slot}|{iso}': state for (iso, slot), state in pairs.items()}
-                        on_room(raw, room_label, [(room_start.isoformat(), (room_end-room_start).days + 1)])
+                        on_room(raw, room_label, observed_ranges(seen))
+                    if not missing:
+                        complete.append(room_label)
+                    finish(room_label, 'partial' if missing else 'checked')
+                    trace("room_finish", room=room_label, days=len(seen), missing_dates=[d.isoformat() for d in missing],
+                          seconds=round(time.monotonic()-room_ts, 1))
                     time.sleep(0.8)
                     try:
                         return_to_room_list(page)
@@ -436,8 +578,9 @@ def fetch_availability(cfg: dict, debug: bool, on_room=None):
                         print(f"[WARN] {kan}: 部屋一覧へ戻れません: {e}")
         finally:
             browser.close()
-    total = sum(booking.candidate(r, cfg) for t in cfg["targets"] for r in t["rooms"])
-    print(f"[INFO] 取得結果: 成功{total - len(failed_rooms)}/{total}室、保留{len(failed_rooms)}室")
+    deferred = [label for _, _, label in rows if label not in visited]
+    print(f"[INFO] 取得結果: 完了{len(complete)}/{len(rows)}室、取得不完全{len(failed_rooms)}室、"
+          f"受付対象日なし{len(skipped)}室、次回へ{len(deferred)}室")
     for room in sorted(failed_rooms):
         print(f"[WARN] 取得保留: {room}")
     return all_slots, not errors, errors, failed_rooms
@@ -455,6 +598,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--test", action="store_true")
+    ap.add_argument("--webhook-only", action="store_true", help="検索・履歴更新をせずDiscord通知先を確認")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument('--opening-watch', action='store_true')
     ap.add_argument("--notify-all", action="store_true")
@@ -467,7 +611,24 @@ def main():
         ap.error("--reset-state は --notify-all / --test と併用できません")
     if args.opening_watch and any((args.test, args.reset_state, args.notify_all)):
         ap.error('--opening-watch はtest/reset-state/notify-allと併用できません')
+    if args.webhook_only and any((args.test, args.reset_state, args.notify_all, args.opening_watch)):
+        ap.error('--webhook-only は単独で指定してください')
     cfg = core.load_config(args.config)
+    if (cfg.get('fureai_scan_revision') != FUREAI_REVISION or
+            not callable(getattr(core, 'write_state_document', None))):
+        ap.exit(1, "[ERROR] fureai.py・monitor.py・config_fureai.yaml を11月18日版で揃えてください。\n")
+    print(f"[INFO] ふれあい巡回版: {FUREAI_REVISION}")
+    if not args.dry_run and not args.reset_state and not cfg.get('discord_webhook_url'):
+        ap.exit(1, "[ERROR] ふれあいネットの通知先が未設定です。ActionsのSecret DISCORD_WEBHOOK_FUREAI を確認してください。\n")
+    if args.webhook_only:
+        try:
+            core.post_discord(cfg.get('discord_webhook_url', ''), {
+                'content': 'ふれあいネット：通知先の接続テストです。部屋の検索・通知履歴の変更はしていません。',
+                'allowed_mentions': {'parse': []}
+            }, args.dry_run)
+        except RuntimeError as error:
+            ap.exit(1, f"[ERROR] ふれあいネット通知先テスト: {error}\n")
+        return
 
     # 共通エンジンのグローバルをふれあいネット用に設定
     core.SLOT_WINDOWS = {k: tuple(v) for k, v in cfg["slot_windows"].items()}
@@ -506,28 +667,53 @@ def main():
 
 
 def run_incremental(cfg, args):
-    rooms = {f"{e['facility']}・{e['name']}" for e in core.room_catalog(cfg) if booking.candidate(e, cfg)}
-    completed = 0
+    rooms = {r for _, _, r in room_plan(cfg)}
+    opening = bool(cfg.get('_scan_windows'))
+    sweep = None
+    if not opening:
+        state = core.load_state()
+        sweep = RoomSweep(cfg, state)
+        sweep.persist_start(state)
+    first = sweep.next_room if sweep is not None else None
+    print("[INFO] " + (f"通常巡回を「{first}」から再開 / 目安{sweep.budget/60:g}分" if sweep else "受付開始日の集中確認"))
+    started = time.monotonic()
+    core.trace_event(cfg, 'run_start', revision=FUREAI_REVISION, mode='opening' if opening else 'normal',
+                     target_rooms=len(rooms), first_room=first, budget_seconds=sweep.budget if sweep else None)
+    checked = set()
+    failed = set()
+    errors = []
+    result = "interrupted"
     def consume(raw, room, ranges):
-        nonlocal completed
         if not core.process_snapshot(cfg, args, raw, failed_rooms=rooms-{room},
                                      observed_ranges=ranges, explicit_status=True,
-                                     positive_only=bool(cfg.get('_scan_windows'))):
+                                     positive_only=opening):
             raise RuntimeError('通知に失敗したため検索を停止。送信済みの履歴は保存しました')
-        completed += 1
+        checked.add(room)
     try:
-        raw, ok, errors, failed = fetch_availability(cfg, args.debug, on_room=consume)
+        raw, ok, errors, failed = fetch_availability(cfg, args.debug, on_room=consume, sweep=sweep)
+        if checked and opening:
+            ranges = [(s, int(n)) for s, n in cfg['_scan_windows']]
+            if not core.process_snapshot(cfg, args, raw, failed_rooms=failed,
+                                         observed_ranges=ranges, explicit_status=True):
+                result = "failed"
+                return False
+        if not ok or (not checked and (not sweep or not sweep.attempted)):
+            result = "failed"
+            return False
+        result = "deferred" if sweep and sweep.remaining() else "complete"
+        return True
     except RuntimeError as error:
         print(f'[ERROR] {error}')
+        result = "failed"
         return False
-    core.trace_event(cfg, 'run_end', completed_rooms=completed, failed_rooms=sorted(failed), errors=errors)
-    if completed and cfg.get('_scan_windows'):
-        # 解禁日だけの検索は、その日以外を満室にしない。初回の基準も全室で確定。
-        ranges = [(s, int(n)) for s, n in cfg['_scan_windows']]
-        if not core.process_snapshot(cfg, args, raw, failed_rooms=failed,
-                                     observed_ranges=ranges, explicit_status=True):
-            return False
-    return completed > 0 and ok
+    finally:
+        deferred = sweep.remaining() if sweep else sorted(rooms - checked - failed)
+        core.trace_event(cfg, 'run_end', revision=FUREAI_REVISION, status=result,
+                         completed_rooms=len(checked - failed), failed_rooms=sorted(failed),
+                         deferred_rooms=deferred, next_room=sweep.next_room if sweep else None,
+                         error_count=len(errors), seconds=round(time.monotonic()-started, 1))
+        if sweep:
+            print(f"[INFO] 巡回結果: {result} / 次回の先頭: {sweep.next_room} / 未巡回{len(deferred)}室")
 
 
 if __name__ == "__main__":
